@@ -56,13 +56,7 @@
         b.disabled = true;
       } else {
         b.textContent = label;
-        b.addEventListener('pointerdown', function (e) {
-          e.preventDefault();
-          if (b.disabled) return;
-          flash(b);
-          onPick(valueOf(i));
-        });
-        b.addEventListener('contextmenu', e => e.preventDefault());
+        bindTap(b, function () { onPick(valueOf(i)); });
       }
       pad.appendChild(b);
       buttons.push(b);
@@ -70,9 +64,34 @@
     return { el: pad, buttons: buttons };
   }
 
-  function flash(el) {
+  /* タップとクリックの両方から同じ処理に入れる。
+     pointerdown は「押した瞬間」を拾えるので基本はこちら。
+     click は Pointer Events が無い環境向けの保険で、
+     直前に pointerdown が来ていたら二重に数えない。 */
+  function bindTap(el, run) {
+    let lastPointer = 0;
+    el.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      if (el.disabled) return;
+      lastPointer = Date.now();
+      tapFeedback(el);
+      run();
+    });
+    el.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (el.disabled) return;
+      if (Date.now() - lastPointer < 700) return;
+      tapFeedback(el);
+      run();
+    });
+    el.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  }
+
+  // 押したことが分かるように、色を変えて対応端末では軽く振動させる
+  function tapFeedback(el) {
     el.classList.add('pressed');
-    setTimeout(() => el.classList.remove('pressed'), 130);
+    setTimeout(function () { el.classList.remove('pressed'); }, 140);
+    if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* 無視 */ } }
   }
 
   function padEnabler(handles) {
@@ -263,6 +282,8 @@
   // 事前録音した音声ファイルを使う方針（Web Speech API はブラウザ差が大きい）。
   // dual は「チャンネルを2本にする」だけで、runner はすでに複数チャンネルを回せる。
 
+  NB.bindTap = bindTap;
+  NB.tapFeedback = tapFeedback;
   NB.modalities = M;
   NB.modalityList = function () { return Object.keys(M).map(k => M[k]); };
   NB.cellNames = CELL_NAMES;

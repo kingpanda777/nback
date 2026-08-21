@@ -55,6 +55,7 @@
     stage.classList.remove('stage-recall');
     stage.innerHTML = '';
     pad.innerHTML = '';
+    pad.classList.remove('pad-input');
     pad.hidden = mode === 'recall';
 
     const multi = channels.length > 1;
@@ -77,6 +78,7 @@
     function buildStage() {
       stage.classList.remove('stage-recall');
       stage.innerHTML = '';
+      pad.classList.remove('pad-input');
       channels.forEach(function (ch) {
         const box = document.createElement('div');
         box.className = 'channel' + (ch.mod.kind === 'audio' ? ' channel-audio' : '');
@@ -117,9 +119,8 @@
         btn.innerHTML = '<span class="respond-main">一致</span>' +
           '<span class="respond-sub">' + (multi ? ch.mod.label + ' / ' : '') +
           NB.keyLabel(ch.key) + '</span>';
-        // click だと端末によって遅れる。押した瞬間を反応時間にする。
-        btn.addEventListener('pointerdown', function (e) { e.preventDefault(); respond(ch); });
-        btn.addEventListener('contextmenu', e => e.preventDefault());
+        // タップでもキーでも同じ respond() に入る
+        NB.bindTap(btn, function () { respond(ch); });
         pad.appendChild(btn);
         ch.btn = btn;
       });
@@ -131,12 +132,8 @@
       if (r.responded) return;           // 同一試行内の二重押しは無視
       r.responded = true;
       r.rt = Math.round(performance.now() - onset);
-      ch.box.classList.add('pressed');
-      ch.btn.classList.add('pressed');
-      setTimeout(function () {
-        ch.box.classList.remove('pressed');
-        ch.btn.classList.remove('pressed');
-      }, 130);
+      // キーで押されたときもボタンが光るようにしておく
+      if (ch.btn && !ch.btn.classList.contains('pressed')) NB.tapFeedback(ch.btn);
       if (cb.onResponse) cb.onResponse(ch.index, trial, r.rt);
     }
 
@@ -169,7 +166,9 @@
       stage.classList.add('stage-recall');
       pad.hidden = false;
       pad.innerHTML = '';
+      pad.classList.add('pad-input');
 
+      // 上：何問目かと、これまでの回答
       const head = document.createElement('div');
       head.className = 'recall-head';
       head.innerHTML = '<div class="recall-q"></div><div class="recall-hint"></div>';
@@ -177,9 +176,24 @@
       recall.qEl = head.querySelector('.recall-q');
       recall.hintEl = head.querySelector('.recall-hint');
 
+      const foot = document.createElement('div');
+      foot.className = 'recall-foot';
+      foot.innerHTML = '<div class="recall-answers"></div>';
+      const undo = document.createElement('button');
+      undo.type = 'button';
+      undo.className = 'ghost recall-undo';
+      undo.textContent = '1つ戻る';
+      NB.bindTap(undo, undoAnswer);
+      foot.appendChild(undo);
+      stage.appendChild(foot);
+      recall.answersEl = foot.querySelector('.recall-answers');
+      recall.undoEl = undo;
+
+      // 下：入力パッド。親指が届く位置に置く。
+      // チャンネルが2本になれば、そのまま左右に並ぶ。
       const paneRow = document.createElement('div');
       paneRow.className = 'recall-panes';
-      stage.appendChild(paneRow);
+      pad.appendChild(paneRow);
 
       channels.forEach(function (ch, i) {
         const holder = document.createElement('div');
@@ -195,20 +209,6 @@
           pick(ch, symbol);
         });
       });
-
-      // 操作部：これまでの回答と「1つ戻る」
-      const foot = document.createElement('div');
-      foot.className = 'recall-foot';
-      foot.innerHTML = '<div class="recall-answers"></div>';
-      const undo = document.createElement('button');
-      undo.type = 'button';
-      undo.className = 'ghost mini';
-      undo.textContent = '1つ戻る';
-      undo.addEventListener('click', undoAnswer);
-      foot.appendChild(undo);
-      pad.appendChild(foot);
-      recall.answersEl = foot.querySelector('.recall-answers');
-      recall.undoEl = undo;
 
       setKeyHandler(onRecallKey);
       if (cb.onPhase) cb.onPhase('recall');
@@ -343,19 +343,23 @@
     }
 
     // ---- 開始 -------------------------------------------------------------
+    // 画面はカウントダウンの前に組み立てておく。
+    // start() まで待つと、数えている間ずっと下が空っぽで、
+    // どこを見てどこを押すのか分からない。
+    buildStage();
+    if (mode === 'realtime') {
+      buildRealtimePad();          // 押しても trial < 0 の間は無視される
+      setKeyHandler(onRealtimeKey);
+    } else {
+      // 提示中は入力させない
+      pad.hidden = true;
+      pad.innerHTML = '';
+      setKeyHandler(function (e) { if (e.key === 'Escape') abort(); });
+    }
+
     return {
       start: function () {
         acquireWakeLock();
-        buildStage();
-        if (mode === 'realtime') {
-          buildRealtimePad();
-          setKeyHandler(onRealtimeKey);
-        } else {
-          // 提示中は入力させない
-          pad.hidden = true;
-          pad.innerHTML = '';
-          setKeyHandler(function (e) { if (e.key === 'Escape') abort(); });
-        }
         if (cb.onPhase) cb.onPhase('present');
         nextTrial();
       },

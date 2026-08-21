@@ -16,6 +16,12 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 属性はブラウザ標準の display:none で消えるが、
+   作者スタイルで display を指定した要素には勝てない（作者スタイルのほうが強い）。
+   ここでまとめて優先させる。これが無いと、隠したはずの要素が
+   透明なまま残ってタップを吸い取る。 */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -197,6 +203,7 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 .countdown {
   position: absolute;
   inset: 0;
+  pointer-events: none;   /* 見せるだけ。裏の入力を邪魔しない */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -254,7 +261,7 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 }
 .respond-btn {
   flex: 1 1 0;
-  min-height: 84px;
+  min-height: 96px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -266,9 +273,13 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 .respond-btn:disabled { opacity: .4; }
 .respond-main { font-size: 1.15rem; font-weight: 700; }
 .respond-sub { font-size: .75rem; color: var(--dim); }
-.respond-btn.pressed { background: var(--accent); border-color: var(--accent); }
+.respond-btn.pressed,
+.respond-btn:not(:disabled):active { background: var(--accent); border-color: var(--accent); }
 .respond-btn.pressed .respond-main,
-.respond-btn.pressed .respond-sub { color: #0f1420; }
+.respond-btn.pressed .respond-sub,
+.respond-btn:not(:disabled):active .respond-main,
+.respond-btn:not(:disabled):active .respond-sub { color: #0f1420; }
+.respond-btn { transition: background .06s; }
 
 /* ---- 混合刺激（グリッド + 中央の数字） ---- */
 .stim-mixed {
@@ -304,22 +315,24 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 
 .stage.stage-recall {
   flex-direction: column;
-  gap: 14px;
-  justify-content: flex-start;
+  gap: 12px;
+  justify-content: center;
 }
 
 .recall-head { text-align: center; flex: none; }
 .recall-q { font-size: 1.05rem; font-weight: 700; }
 .recall-hint { font-size: .82rem; color: var(--dim); }
 
+/* 入力パッドは画面の下端に置く。片手持ちの親指が届く範囲。
+   チャンネルが2本になれば、この flex がそのまま左右2つに並べる。 */
 .recall-panes {
   display: flex;
+  gap: 14px;
   justify-content: center;
-  align-items: center;      /* 余った縦を上下に分けて、親指の届く高さに置く */
+  align-items: flex-end;
   width: 100%;
-  min-height: 0;
-  flex: 1;
 }
+.pad.pad-input { padding-top: 10px; }
 .recall-channel { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
 .recall-channel-label { font-size: .78rem; color: var(--dim); }
 
@@ -332,11 +345,11 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-  width: min(78vw, 40vh, 300px);
+  width: min(86vw, 34vh, 320px);
   aspect-ratio: 1 / 1;
 }
-/* 2枚並ぶので1枚あたりの幅を抑える。43vw×2 + すき間で画面に収まる。 */
-.input-pane-dual .input-grid { width: min(43vw, 34vh, 210px); gap: 6px; }
+/* 2枚並ぶので1枚あたりの幅を抑える。44vw×2 + すき間で画面に収まる。 */
+.input-pane-dual .input-grid { width: min(44vw, 26vh, 210px); gap: 6px; }
 
 .input-cell {
   display: flex;
@@ -351,11 +364,18 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 }
 .input-pane-dual .input-cell { font-size: 1.1rem; }
 .input-cell.blank { background: rgba(255, 255, 255, .02); border-style: dashed; opacity: .35; }
-.input-cell.pressed { background: var(--accent); border-color: var(--accent); color: #0f1420; }
+.input-cell.pressed,
+.input-cell:not(.blank):not(:disabled):active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0f1420;
+  transform: scale(.96);
+}
 .input-cell:disabled:not(.blank) { opacity: .4; }
+.input-cell { transition: background .06s, transform .06s; }
 
 .recall-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
-.recall-foot button { min-height: 40px; padding: 8px 14px; }
+.recall-undo { min-height: 44px; padding: 8px 16px; flex: none; }
 .recall-answers {
   display: flex;
   gap: 5px;
