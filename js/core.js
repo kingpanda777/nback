@@ -55,7 +55,7 @@
     if (n > 0 && trials <= n) throw new Error('trials は n より多く必要');
 
     // n = 0 は「Nバック構造を作らない」指示。
-    // 出た順に全部答える方式（記憶スパン）で使う。ターゲットもひっかけもない。
+    // 自分のペースで進む方式は、毎試行が出題なのでターゲットの概念がない。そこで使う。
     if (n === 0) {
       const plain = new Array(trials);
       for (let i = 0; i < trials; i++) {
@@ -190,13 +190,13 @@
            (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
   }
 
-  // ---- 判定：提示後に入力する方式 -----------------------------------------
+  // ---- 判定：自分のペースで進む方式 ---------------------------------------
   /**
-   * 提示が終わってから、出た順に思い出して入力する方式の集計。
-   * @param {string[]} expected 正解の記号列（提示された順）
+   * 正解列と回答列を突き合わせる集計。自分のペースで進む方式すべてで使う。
+   * @param {string[]} expected 正解の記号列
    * @param {Array<{symbol:string, rt:number|null}>} answers 実際の回答
    */
-  function scoreRecall(expected, answers) {
+  function scoreAnswers(expected, answers) {
     const flags = [];
     const rts = [];
     let correct = 0;
@@ -227,20 +227,13 @@
   // ---- 提示後に入力する方式の難易度 ---------------------------------------
   // この方式の難易度は問題数（＝提示数）そのもの。
   // Jaeggi の考え方を、20試行ではなく数問のブロックに合わせて縮めた。
-  // 計算Nバックは1ブロックの問題数を自由に決められるので、件数の閾値だと
-  // 問題数によって意味が変わってしまう。割合で見る。
+  // 自分のペースで進む方式は1ブロックの問題数を自由に決められるので、
+  // 件数の閾値だと問題数によって意味が変わってしまう。割合で見る。
   function suggestNextNByRate(currentN, accuracy) {
     if (accuracy === null || accuracy === undefined) return currentN;
     if (accuracy >= 0.9) return currentN + 1;
     if (accuracy < 0.7) return Math.max(1, currentN - 1);
     return currentN;
-  }
-
-  function suggestNextTrials(trials, n, incorrect) {
-    const floor = Math.max(2, n + 1);
-    if (incorrect === 0) return trials + 1;
-    if (incorrect >= 2) return Math.max(floor, trials - 1);
-    return trials;
   }
 
   // ---- 適応的難易度（第2段階で使う。判定は今から持っておく） ---------------
@@ -252,6 +245,6 @@
     return currentN;
   }
 
-  NB.core = { makeRng, randomSeed, generateSequence, score, scoreRecall,
-              dPrime, probit, suggestNextN, suggestNextNByRate, suggestNextTrials };
+  NB.core = { makeRng, randomSeed, generateSequence, score, scoreAnswers,
+              dPrime, probit, suggestNextN, suggestNextNByRate };
 })(window.NB = window.NB || {});

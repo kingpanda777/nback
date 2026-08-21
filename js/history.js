@@ -15,10 +15,11 @@
 
   function modalityLabel(id) {
     if (id === 'dual') return 'デュアル';
-    // 計算Nバックは既存のモダリティ登録とは独立しているので、そちらに問い合わせる
-    if (NB.calc && NB.calc.MODALITY.id === id) return NB.calc.MODALITY.label;
     const m = NB.modalities[id];
-    return m ? m.label : id;
+    if (m) return m.label;
+    // 自分のペース方式の課題は paced.js 側に登録がある
+    if (NB.paced && NB.paced.TASKS[id]) return NB.paced.label(id);
+    return id;
   }
 
   function localDate(iso) {
@@ -52,6 +53,7 @@
         dPrime: avg(rs.map(r => r.dPrime)),
         maxRecallCount: Math.max.apply(null, [0].concat(
           rs.filter(r => mode(r) === 'recall').map(r => r.trials))),
+        // 廃止した方式の記録が壊れていても、集計で落ちないようにしておく
         modalities: Array.from(new Set(rs.map(r => r.modality)))
       });
     });
@@ -64,12 +66,38 @@
     return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null;
   }
 
-  // v1 の記録には responseMode がない。当時はリアルタイム判定しかなかった。
-  function mode(r) { return r.responseMode || 'realtime'; }
-  const MODE_LABEL = { realtime: 'リアルタイム', recall: '提示後に入力', calc: '計算Nバック' };
-  const MODES = ['realtime', 'recall', 'calc'];
+  /* 記録の方式を今の呼び方に寄せる。
+       v1        responseMode が無い。当時はリアルタイム判定しかなかった
+       v2-v4     'calc' は「自分のペース」方式のひとつになった
+       'recall'  廃止した方式。記録は残っているので読めるようにしておく */
+  function mode(r) {
+    const m = r.responseMode || 'realtime';
+    return m === 'calc' ? 'paced' : m;
+  }
+
+  /* 履歴を区切る単位。自分のペース方式は課題ごとに別物なので、さらに分ける。
+     位置のNバックと計算のNバックを同じ図に重ねても読めない。 */
+  function sectionKey(r) {
+    const m = mode(r);
+    return m === 'paced' ? 'paced:' + (r.task || r.modality) : m;
+  }
+
+  const MODE_LABEL = { realtime: 'リアルタイム', paced: '自分のペース', recall: '提示後に入力（廃止）' };
+
+  function sectionLabel(key) {
+    if (key === 'realtime') return 'リアルタイム判定';
+    if (key === 'recall') return '提示後に入力（廃止）';
+    if (key.indexOf('paced:') === 0) return modalityLabel(key.slice(6)) + ' — 自分のペース';
+    return key;
+  }
+
+  // 廃止した方式は同じ条件で走らせ直せないので、再挑戦を出さない
+  function replayable(r) { return mode(r) !== 'recall'; }
 
   function pct(v) { return (v === null || v === undefined) ? '—' : Math.round(v * 100) + '%'; }
+
+  // 古い記録や壊れた記録で値が欠けていても表示を壊さない
+  function num0(v) { return (v === null || v === undefined || isNaN(v)) ? '—' : v; }
 
   function num(v, d) {
     if (v === null || v === undefined || isNaN(v)) return '—';
@@ -106,6 +134,9 @@
     });
 
     opt.series.forEach(function (s) {
+      // 値が欠けている記録（古い記録や壊れた記録）は点を打たない。
+      // NaN のまま座標にすると SVG が壊れてコンソールにエラーが出る。
+      s.points = s.points.filter(p => typeof p.y === 'number' && isFinite(p.y));
       if (!s.points.length) return;
       // 方式の違う記録が間に挟まると点が飛ぶ。飛んだところは線を繋がない。
       if (s.points.length > 1) {
@@ -158,19 +189,23 @@
 
     let rs = records.slice().sort((a, b) => a.datetime < b.datetime ? -1 : 1);
     if (opts.modality && opts.modality !== 'all') rs = rs.filter(r => r.modality === opts.modality);
-    if (opts.responseMode && opts.responseMode !== 'all') rs = rs.filter(r => mode(r) === opts.responseMode);
+    if (opts.responseMode && opts.responseMode !== 'all') rs = rs.filter(r => sectionKey(r) === opts.responseMode);
 
     if (!rs.length) {
       container.innerHTML = '<p class="empty">この絞り込みに該当する記録はありません。</p>';
       return;
     }
 
-    const byMode = {};
-    MODES.forEach(function (m) { byMode[m] = rs.filter(r => mode(r) === m); });
+    // 出てきた順（＝記録の古い順）で区画を並べる
+    const keys = [];
+    rs.forEach(function (r) {
+      const k = sectionKey(r);
+      if (keys.indexOf(k) < 0) keys.push(k);
+    });
 
     let html = '';
-    MODES.forEach(function (m) {
-      if (byMode[m].length) html += modeSection(m, byMode[m]);
+    keys.forEach(function (k) {
+      html += modeSection(k, rs.filter(r => sectionKey(r) === k));
     });
     html += blockList(rs);
 
@@ -180,18 +215,27 @@
   /* 方式1つ分。難易度の推移 → 成績の推移 → 日付ごと の順。
      難易度のつまみは realtime と calc が N、recall が問題数。
      成績は realtime だけ ヒット率/誤警報率、あとは正答率。 */
-  function modeSection(m, rs) {
+  function modeSection(key, rs) {
+    const retired = key === 'recall';
     return '<section class="mode-block">' +
-      '<h2 class="mode-title">' + MODE_LABEL[m] +
+      '<h2 class="mode-title">' + esc(sectionLabel(key)) +
       '<span class="mode-count">' + rs.length + ' ブロック</span></h2>' +
-      (m === 'recall' ? countChart(rs) : nChart(rs)) +
-      (m === 'realtime' ? realtimeRateChart(rs) : accuracyChart(rs)) +
-      dateTable(rs, m) +
+      (retired ? '<p class="hint retired-note">この方式は廃止しました（Nバックではなく記憶スパン課題だったため）。' +
+                 '過去の記録として残してあります。</p>' : '') +
+      (retired ? countChart(rs) : nChart(rs)) +
+      (key === 'realtime' ? realtimeRateChart(rs) : accuracyChart(rs)) +
+      dateTable(rs, key) +
       '</section>';
   }
 
   function card(title, body) {
     return '<section class="card"><h3>' + title + '</h3>' + body + '</section>';
+  }
+
+  // 欠けている値を除いた最大。1件も無ければ 0。
+  function maxOf(rs, pick) {
+    const vals = rs.map(pick).filter(v => typeof v === 'number' && isFinite(v));
+    return vals.length ? Math.max.apply(null, vals) : 0;
   }
 
   // モダリティごとに1本の線を引く。x はこの方式の中での通し番号。
@@ -210,7 +254,7 @@
   // 難易度のつまみ：リアルタイム判定は N
   function nChart(rs) {
     const sr = seriesByModality(rs, r => r.n, r => localDate(r.datetime) + '  N' + r.n);
-    const top = Math.max(Math.max.apply(null, rs.map(r => r.n)), 3);
+    const top = Math.max(maxOf(rs, r => r.n), 3);
     const ticks = [];
     for (let v = 1; v <= top; v++) ticks.push({ v: v, label: 'N' + v });
     return card('N の推移', lineChart({
@@ -222,7 +266,7 @@
   // 難易度のつまみ：提示後に入力は問題数
   function countChart(rs) {
     const sr = seriesByModality(rs, r => r.trials, r => localDate(r.datetime) + '  ' + r.trials + '問');
-    const top = Math.max(Math.max.apply(null, rs.map(r => r.trials)), 4);
+    const top = Math.max(maxOf(rs, r => r.trials), 4);
     const step = top > 12 ? 4 : 2;
     const ticks = [];
     for (let v = 2; v <= top; v += step) ticks.push({ v: v, label: v + '問' });
@@ -259,22 +303,23 @@
     ]);
   }
 
-  function dateTable(rs, m) {
-    const head = m === 'realtime'
+  function dateTable(rs, key) {
+    const retired = key === 'recall';
+    const head = key === 'realtime'
       ? '<th>日付</th><th>ブロック</th><th>最高N</th><th>ヒット率</th><th>誤警報率</th><th>d&prime;</th>'
-      : (m === 'calc'
-        ? '<th>日付</th><th>ブロック</th><th>最高N</th><th>正答率</th>'
-        : '<th>日付</th><th>ブロック</th><th>最多問題数</th><th>正答率</th>');
+      : (retired
+        ? '<th>日付</th><th>ブロック</th><th>最多問題数</th><th>正答率</th>'
+        : '<th>日付</th><th>ブロック</th><th>最高N</th><th>正答率</th>');
     const rows = byDate(rs).map(function (d) {
       let cells;
-      if (m === 'realtime') {
+      if (key === 'realtime') {
         cells = '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' +
           '<td>' + pct(d.hitRate) + '</td><td>' + pct(d.faRate) + '</td><td>' + num(d.dPrime, 2) + '</td>';
-      } else if (m === 'calc') {
-        cells = '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' +
+      } else if (retired) {
+        cells = '<td class="strong">' + (d.maxRecallCount ? d.maxRecallCount + '問' : '—') + '</td>' +
           '<td>' + pct(d.accuracy) + '</td>';
       } else {
-        cells = '<td class="strong">' + (d.maxRecallCount ? d.maxRecallCount + '問' : '—') + '</td>' +
+        cells = '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' +
           '<td>' + pct(d.accuracy) + '</td>';
       }
       return '<tr><td>' + d.date + '</td><td>' + d.blocks + '</td>' + cells + '</tr>';
@@ -294,15 +339,15 @@
     const rows = rs.slice().reverse().map(function (r) {
       const m = mode(r);
       const score = m === 'realtime'
-        ? 'ヒット ' + r.hits + '/' + r.targets + ' ・誤警報 ' + r.falseAlarms
-        : '正答 ' + r.correct + '/' + r.questions;
+        ? 'ヒット ' + num0(r.hits) + '/' + num0(r.targets) + ' ・誤警報 ' + num0(r.falseAlarms)
+        : '正答 ' + num0(r.correct) + '/' + num0(r.questions);
       const length = m === 'realtime' ? r.trials + '試行'
-        : (m === 'calc' ? r.trials + '問出題' : r.trials + '問');
+        : (m === 'paced' ? r.trials + '問出題' : r.trials + '問');
       return '<tr>' +
         '<td class="nowrap">' + localDate(r.datetime) + ' ' + localTime(r.datetime) + '</td>' +
         (hasN ? '<td class="strong">' + (r.n > 0 ? 'N' + r.n : '—') + '</td>' : '') +
         '<td class="nowrap">' + esc(modalityLabel(r.modality)) + '</td>' +
-        '<td class="nowrap">' + MODE_LABEL[m] + '</td>' +
+        '<td class="nowrap">' + (MODE_LABEL[m] || m) + '</td>' +
         '<td class="nowrap">' + length + '</td>' +
         '<td class="nowrap">' + score + '</td>' +
         (hasSdt ? '<td>' + pct(r.hitRate) + '</td><td>' + pct(r.faRate) + '</td><td>' + num(r.dPrime, 2) + '</td>' : '') +
@@ -310,7 +355,7 @@
         '<td>' + (r.meanRt === null || r.meanRt === undefined ? '—' : r.meanRt + 'ms') + '</td>' +
         '<td class="mono">' + r.seed + '</td>' +
         '<td class="row-actions nowrap">' +
-        '<button class="mini" data-replay="' + esc(r.datetime) + '">再挑戦</button>' +
+        (replayable(r) ? '<button class="mini" data-replay="' + esc(r.datetime) + '">再挑戦</button>' : '') +
         '<button class="mini danger" data-delete="' + esc(r.datetime) + '">削除</button>' +
         '</td></tr>';
     }).join('');
@@ -324,5 +369,6 @@
       '</tr></thead><tbody>' + rows + '</tbody></table></div>');
   }
 
-  NB.history = { render, byDate, modalityLabel, colorFor, localDate, localTime, pct, num, esc, mode, MODE_LABEL };
+  NB.history = { render, byDate, modalityLabel, colorFor, localDate, localTime,
+                 pct, num, esc, mode, sectionKey, sectionLabel, MODE_LABEL };
 })(window.NB = window.NB || {});

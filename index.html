@@ -40,19 +40,18 @@
         <span class="card-label">応答方式</span>
         <select id="response-mode">
           <option value="realtime">リアルタイム判定 — 提示中に一致したら押す</option>
-          <option value="recall">提示後に入力 — 全部出てから順に思い出して答える</option>
-          <option value="calc">計算Nバック — 式の答えをN個前まで覚える</option>
+          <option value="paced">自分のペース — N個前に出たものを入力して次へ</option>
         </select>
       </label>
 
-      <label class="field" id="row-recall-count" hidden>
-        <span class="card-label">問題数</span>
-        <input type="number" id="recall-count" min="2" max="30" step="1" inputmode="numeric">
+      <label class="field" id="row-paced-task" hidden>
+        <span class="card-label">課題</span>
+        <select id="paced-task"></select>
       </label>
 
-      <label class="field" id="row-calc-answers" hidden>
+      <label class="field" id="row-paced-answers" hidden>
         <span class="card-label">回答数</span>
-        <input type="number" id="calc-answers" min="3" max="60" step="1" inputmode="numeric">
+        <input type="number" id="paced-answers" min="3" max="60" step="1" inputmode="numeric">
       </label>
 
       <p class="hint" id="setup-summary"></p>
@@ -169,12 +168,7 @@
       </label>
       <label class="field inline">
         <span>方式</span>
-        <select id="history-mode-filter">
-          <option value="all">すべて</option>
-          <option value="realtime">リアルタイム</option>
-          <option value="recall">提示後に入力</option>
-          <option value="calc">計算Nバック</option>
-        </select>
+        <select id="history-mode-filter"></select>
       </label>
       <div class="spacer"></div>
       <button type="button" id="export" class="ghost mini">書き出し (.jsonl)</button>
@@ -197,7 +191,7 @@
 <script src="js/core.js"></script>
 <script src="js/modalities.js"></script>
 <script src="js/runner.js"></script>
-<script src="js/calc.js"></script>
+<script src="js/paced.js"></script>
 <script src="js/storage.js"></script>
 <script src="js/history.js"></script>
 <script src="js/app.js"></script>

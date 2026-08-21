@@ -303,7 +303,7 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 }
 .stim-mixed-digit.on { opacity: 1; }
 
-/* ---- 提示後に入力する方式 ---- */
+/* ---- 自分のペースで進む方式 ---- */
 .phase-tag {
   background: var(--accent);
   color: #0f1420;
@@ -313,124 +313,50 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
   font-weight: 700;
 }
 
-.stage.stage-recall {
-  flex-direction: column;
-  gap: 12px;
-  justify-content: center;
-}
-
-.recall-head { text-align: center; flex: none; }
-.recall-q { font-size: 1.05rem; font-weight: 700; }
-.recall-hint { font-size: .82rem; color: var(--dim); }
-
-/* 入力パッドは画面の下端に置く。片手持ちの親指が届く範囲。
-   チャンネルが2本になれば、この flex がそのまま左右2つに並べる。 */
-.recall-panes {
-  display: flex;
-  gap: 14px;
-  justify-content: center;
-  align-items: flex-end;
-  width: 100%;
-}
-.pad.pad-input { padding-top: 10px; }
-.recall-channel { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
-.recall-channel-label { font-size: .78rem; color: var(--dim); }
-
-.input-pane { display: flex; gap: 16px; justify-content: center; align-items: flex-start; }
-.input-pane-dual { gap: 14px; }
-.input-group { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.input-group-label { font-size: .75rem; color: var(--dim); }
-
-.input-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  width: min(86vw, 34vh, 320px);
-  aspect-ratio: 1 / 1;
-}
-/* 2枚並ぶので1枚あたりの幅を抑える。44vw×2 + すき間で画面に収まる。 */
-.input-pane-dual .input-grid { width: min(44vw, 26vh, 210px); gap: 6px; }
-
-.input-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-}
-.input-pane-dual .input-cell { font-size: 1.1rem; }
-.input-cell.blank { background: rgba(255, 255, 255, .02); border-style: dashed; opacity: .35; }
-.input-cell.pressed,
-.input-cell:not(.blank):not(:disabled):active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #0f1420;
-  transform: scale(.96);
-}
-.input-cell:disabled:not(.blank) { opacity: .4; }
-.input-cell { transition: background .06s, transform .06s; }
-
-.recall-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
-.recall-undo { min-height: 44px; padding: 8px 16px; flex: none; }
-.recall-answers {
-  display: flex;
-  gap: 5px;
-  overflow-x: auto;
-  flex: 1;
-  padding: 2px 0;
-  -webkit-overflow-scrolling: touch;
-}
-.answer-chip {
-  flex: none;
-  min-width: 30px;
-  padding: 4px 7px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--dim);
-  font-size: .74rem;
-  text-align: center;
-  white-space: nowrap;
-}
-.answer-chip.filled { color: var(--text); background: var(--panel-2); }
-.answer-chip.current { border-color: var(--accent); color: var(--accent); }
-
-/* ---- 計算Nバック ---- */
-.stage.stage-calc {
+.stage.stage-paced {
   flex-direction: column;
   gap: 10px;
   justify-content: center;
 }
-.calc-head { text-align: center; flex: none; }
-.calc-ask { font-size: 1rem; font-weight: 700; }
-.calc-problem {
+.paced-ask { font-size: 1rem; font-weight: 700; text-align: center; flex: none; }
+.paced-note { font-size: .82rem; color: var(--dim); text-align: center; flex: none; }
+.paced-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+/* 計算の式と、数字1つ。どちらも中央に大きく。 */
+.paced-problem {
   font-size: clamp(2.6rem, 15vmin, 5rem);
   font-weight: 700;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  flex: none;
 }
-.calc-note { font-size: .82rem; color: var(--dim); text-align: center; flex: none; }
 
-/* 0〜9 の入力パッド。キーボードは使わないので、ここだけで完結させる。 */
-.pad.pad-calc { flex-direction: column; align-items: center; }
-.calc-pad {
+/* 入力パッド。キーボードは使わないのでここだけで完結させる。
+   親指が届くよう画面下端に置く。 */
+.pad.pad-paced { flex-direction: column; align-items: center; }
+.paced-pad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   width: min(86vw, 32vh, 320px);
 }
-.calc-digit { aspect-ratio: 1 / 1; }
-.calc-zero { grid-column: 1 / -1; aspect-ratio: auto; min-height: 56px; }
-.calc-next { width: min(86vw, 320px); min-height: 64px; font-size: 1.05rem; }
+.paced-digit { aspect-ratio: 1 / 1; }
+.paced-zero { grid-column: 1 / -1; aspect-ratio: auto; min-height: 56px; }
 
-/* 式は横に長いので、内訳は1列ぶんの幅を広めに取る */
-.recall-review-wide { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+/* 位置は位置で答える。数字ボタンには置き換えない。 */
+.paced-pad-grid { aspect-ratio: 1 / 1; }
+.paced-cell { aspect-ratio: 1 / 1; }
+
+.paced-next { width: min(86vw, 320px); min-height: 64px; font-size: 1.05rem; }
+
+.retired-note { margin: 0 0 12px; }
 
 /* ---- 結果：問題ごとの内訳 ---- */
 .recall-review {

@@ -79,10 +79,10 @@
   const DEFAULT_SETTINGS = {
     n: 2,
     modalityId: 'visual-number',
-    responseMode: 'realtime',   // 'realtime' = 提示中に押す / 'recall' = 提示後に入力 / 'calc' = 計算Nバック
+    responseMode: 'realtime',   // 'realtime' = 提示中に押す / 'paced' = 自分のペースで進む
+    pacedTask: 'calc-arith',    // paced のとき何をやるか（paced.js の TASKS のID）
     trialsExtra: 20,            // realtime: 1ブロック = N + 20 試行
-    recallCount: 10,            // recall: 問題数。この数だけ提示して、この数だけ答える
-    calcAnswers: 15,            // calc: 採点する問題数。出題は N + この数
+    pacedAnswers: 15,           // paced: 採点する問題数。出題は N + この数
     calcAnswerMax: 9,           // calc: 答えの上限。2桁に広げるならここを 99 にする
     targetRate: 0.28,
     stimulusMs: 500,
@@ -92,12 +92,32 @@
   };
 
   function loadSettings() {
+    let saved = {};
     try {
       const raw = localStorage.getItem(SETTINGS_KEY);
-      return Object.assign({}, DEFAULT_SETTINGS, raw ? JSON.parse(raw) : {});
-    } catch (e) {
-      return Object.assign({}, DEFAULT_SETTINGS);
+      if (raw) saved = JSON.parse(raw) || {};
+    } catch (e) { saved = {}; }
+    return migrateSettings(Object.assign({}, DEFAULT_SETTINGS, saved), saved);
+  }
+
+  /* 保存済みの設定を今の形に寄せる。
+     'recall'（すべて覚えて最後に全部答える方式）は廃止した。
+     'calc' は「自分のペース」方式のひとつという扱いに変わった。
+     saved は既定値とマージする前の生の保存値。旧キーの有無を見るのに要る。 */
+  function migrateSettings(s, saved) {
+    if (s.responseMode === 'calc') {
+      s.responseMode = 'paced';
+      s.pacedTask = 'calc-arith';
     }
+    if (s.responseMode !== 'realtime' && s.responseMode !== 'paced') s.responseMode = 'realtime';
+    // 旧 calcAnswers を引き継ぐ（既定値とマージ済みの s ではなく saved を見る）
+    if (saved && saved.pacedAnswers === undefined && saved.calcAnswers !== undefined) {
+      s.pacedAnswers = saved.calcAnswers;
+    }
+    delete s.calcAnswers;
+    delete s.recallCount;
+    if (!s.pacedTask) s.pacedTask = DEFAULT_SETTINGS.pacedTask;
+    return s;
   }
 
   function saveSettings(s) {

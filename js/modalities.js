@@ -15,9 +15,8 @@
      hide(handle)
      unmount(handle)
 
-     -- 入力（提示後に自分で入力する方式で使う） --
-     mountInput(container, settings, onPick) -> handle
-       onPick(symbol) を呼ぶ。handle.setEnabled(bool) を持つ。
+   入力パッドはここには置かない。自分のペースで進む方式が paced.js に自前で持つ。
+   ここは「どう出すか」だけ。
 */
 (function (NB) {
   'use strict';
@@ -39,29 +38,6 @@
       cells.push(c);
     }
     return { grid: grid, cells: cells };
-  }
-
-  // 入力用の3×3パッド。labels[i] が null のマスは押せない。
-  function makePad(labels, onPick, valueOf) {
-    const pad = document.createElement('div');
-    pad.className = 'input-grid';
-    const buttons = [];
-    labels.forEach(function (label, i) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'input-cell';
-      b.dataset.index = String(i);
-      if (label === null) {
-        b.classList.add('blank');
-        b.disabled = true;
-      } else {
-        b.textContent = label;
-        bindTap(b, function () { onPick(valueOf(i)); });
-      }
-      pad.appendChild(b);
-      buttons.push(b);
-    });
-    return { el: pad, buttons: buttons };
   }
 
   /* タップとクリックの両方から同じ処理に入れる。
@@ -94,17 +70,6 @@
     if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) { /* 無視 */ } }
   }
 
-  function padEnabler(handles) {
-    return function (on) {
-      handles.forEach(function (h) {
-        h.buttons.forEach(function (b) {
-          if (b.classList.contains('blank')) return;
-          b.disabled = !on;
-        });
-      });
-    };
-  }
-
   // ---- 1〜9の数字を中央に表示 ---------------------------------------------
   M['visual-number'] = {
     id: 'visual-number',
@@ -126,23 +91,6 @@
     show: function (h, symbol) { h.el.textContent = symbol; h.el.classList.add('on'); },
     hide: function (h) { h.el.textContent = ''; h.el.classList.remove('on'); },
     unmount: function (h) { h.el.remove(); },
-
-    // PC ではキーでも入力できる
-    inputKeys: function () {
-      const map = {};
-      for (let d = 1; d <= 9; d++) map[String(d)] = String(d);
-      return map;
-    },
-
-    mountInput: function (container, settings, onPick) {
-      const labels = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-      const pad = makePad(labels, onPick, i => labels[i]);
-      const wrap = document.createElement('div');
-      wrap.className = 'input-pane';
-      wrap.appendChild(pad.el);
-      container.appendChild(wrap);
-      return { el: wrap, setEnabled: padEnabler([pad]) };
-    }
   };
 
   // ---- 3×3グリッドの位置 ---------------------------------------------------
@@ -167,28 +115,6 @@
     show: function (h, symbol) { h.cells[Number(symbol)].classList.add('on'); },
     hide: function (h) { h.cells.forEach(c => c.classList.remove('on')); },
     unmount: function (h) { h.el.remove(); },
-
-    // 1〜9 を読み順（左上から右下）でマスに対応させる
-    inputKeys: function (settings) {
-      const usable = M['visual-position'].alphabet(settings);
-      const map = {};
-      for (let i = 0; i < 9; i++) {
-        if (usable.indexOf(String(i)) >= 0) map[String(i + 1)] = String(i);
-      }
-      return map;
-    },
-
-    mountInput: function (container, settings, onPick) {
-      const usable = M['visual-position'].alphabet(settings);
-      const labels = [];
-      for (let i = 0; i < 9; i++) labels.push(usable.indexOf(String(i)) >= 0 ? '' : null);
-      const pad = makePad(labels, onPick, i => String(i));
-      const wrap = document.createElement('div');
-      wrap.className = 'input-pane';
-      wrap.appendChild(pad.el);
-      container.appendChild(wrap);
-      return { el: wrap, setEnabled: padEnabler([pad]) };
-    }
   };
 
   // ---- 数字と位置が混ざったもの -------------------------------------------
@@ -235,50 +161,13 @@
       h.cells.forEach(c => c.classList.remove('on'));
     },
     unmount: function (h) { h.el.remove(); },
-
-    // 数字は 1〜9、位置は QWE / ASD / ZXC をマスの並びに対応させる
-    inputKeys: function () {
-      const map = {};
-      for (let d = 1; d <= 9; d++) map[String(d)] = 'N' + d;
-      const keys = ['Q', 'W', 'E', 'A', 'S', 'D', 'Z', 'X', 'C'];
-      keys.forEach(function (k, i) { if (i !== 4) map[k] = 'P' + i; });
-      return map;
-    },
-
-    mountInput: function (container, settings, onPick) {
-      // 位置と数字のパッドを並べる。どちらを押したかで「種類」も同時に決まる。
-      const posLabels = [];
-      for (let i = 0; i < 9; i++) posLabels.push(i === 4 ? null : '');
-      const posPad = makePad(posLabels, onPick, i => 'P' + i);
-
-      const numLabels = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-      const numPad = makePad(numLabels, onPick, i => 'N' + numLabels[i]);
-
-      const wrap = document.createElement('div');
-      wrap.className = 'input-pane input-pane-dual';
-      wrap.appendChild(labelled('位置', posPad.el));
-      wrap.appendChild(labelled('数字', numPad.el));
-      container.appendChild(wrap);
-      return { el: wrap, setEnabled: padEnabler([posPad, numPad]) };
-    }
   };
-
-  function labelled(text, el) {
-    const box = document.createElement('div');
-    box.className = 'input-group';
-    const t = document.createElement('div');
-    t.className = 'input-group-label';
-    t.textContent = text;
-    box.appendChild(t);
-    box.appendChild(el);
-    return box;
-  }
 
   // ---- 第2段階の追加位置 ---------------------------------------------------
   // audio-letter は同じ形で M['audio-letter'] = { kind:'audio',
   //   alphabet: () => ['C','H','K','L','Q','R','S','T'],
-  //   mount: () => ({}), show: (h,s) => playClip(s), hide: () => {},
-  //   mountInput: 8個の文字ボタン } として登録する。
+  //   mount: () => ({}), show: (h,s) => playClip(s), hide: () => {} } として登録する。
+  // 自分のペースで答えさせるなら、入力パッドは paced.js の TASKS 側に足す。
   // 事前録音した音声ファイルを使う方針（Web Speech API はブラウザ差が大きい）。
   // dual は「チャンネルを2本にする」だけで、runner はすでに複数チャンネルを回せる。
 

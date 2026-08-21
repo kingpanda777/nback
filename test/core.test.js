@@ -3,10 +3,14 @@
 const fs = require('fs');
 const p = require('path');
 global.window = {};
+global.navigator = {};
+// 位置課題は提示を modalities.js に委譲しているので一緒に読む。
+// どのファイルも読み込み時点では DOM を触らないので、Node でもそのまま評価できる。
 eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'core.js'), 'utf8'));
-eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'calc.js'), 'utf8'));
+eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'modalities.js'), 'utf8'));
+eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'paced.js'), 'utf8'));
 const core = window.NB.core;
-const calc = window.NB.calc;
+const paced = window.NB.paced;
 
 let fails = 0;
 function ok(cond, msg) {
@@ -112,7 +116,7 @@ ok(core.suggestNextN(2, { misses: 2, falseAlarms: 2 }) === 2, '4件 → 据え�
 ok(core.suggestNextN(2, { misses: 3, falseAlarms: 2 }) === 1, '5件 → N-1');
 ok(core.suggestNextN(1, { misses: 9, falseAlarms: 9 }) === 1, 'N1 より下がらない');
 
-console.log('--- 提示後に入力する方式の集計 ---');
+console.log('--- 回答の集計（自分のペース方式で共通） ---');
 {
   const expected = ['5', '2', '7', '2'];
   const answers = [
@@ -121,25 +125,20 @@ console.log('--- 提示後に入力する方式の集計 ---');
     { symbol: '1', rt: 1200 },   // 誤答
     { symbol: '2', rt: 800 }
   ];
-  const s = core.scoreRecall(expected, answers);
+  const s = core.scoreAnswers(expected, answers);
   ok(s.questions === 4 && s.correct === 3 && s.incorrect === 1, '4問中3問正解');
   ok(s.accuracy === 0.75, '正答率 = 3/4');
   ok(s.correctFlags.map(v => v ? 1 : 0).join('') === '1101', '正誤フラグの並び');
   ok(s.streak === 2, '頭から続けて正解した数 = 2');
   ok(s.meanRt === 900, '平均反応時間 = 900ms');
+  ok(s.hitRate === undefined && s.faRate === undefined, 'ヒット率・誤警報率は算出しない');
 }
 {
   // 未回答（中断など）は誤答として数える
-  const s = core.scoreRecall(['1', '2', '3'], [{ symbol: '1', rt: 500 }]);
+  const s = core.scoreAnswers(['1', '2', '3'], [{ symbol: '1', rt: 500 }]);
   ok(s.answered === 1 && s.correct === 1 && s.incorrect === 2, '未回答は誤答扱い');
   ok(Math.abs(s.accuracy - 1 / 3) < 1e-9, '正答率は問題数で割る');
 }
-
-console.log('--- 提示数の増減の目安 ---');
-ok(core.suggestNextTrials(8, 2, 0) === 9, '全問正解 → 提示数 +1');
-ok(core.suggestNextTrials(8, 2, 1) === 8, '誤答1 → 据え置き');
-ok(core.suggestNextTrials(8, 2, 3) === 7, '誤答3以上 → 提示数 -1');
-ok(core.suggestNextTrials(3, 2, 5) === 3, 'N+1 より短くはしない');
 
 console.log('--- 混合モダリティの記号列 ---');
 {
@@ -168,67 +167,72 @@ console.log('--- 混合モダリティの記号列 ---');
 
 console.log('--- Nバック構造を作らない列 (n = 0) ---');
 {
-  // 提示後に入力する方式は「出た順に全部答える」だけなので、列に N バック構造は要らない。
-  const alphabet = '123456789'.split('');
+  // 自分のペース方式は毎試行が出題なので、ターゲットの概念がない。
+  const alphabet = '0123456789'.split('');
   let bad = 0, repeats = 0;
   for (let seed = 0; seed < 200; seed++) {
-    const seq = core.generateSequence({ n: 0, trials: 10, targetRate: 0.28, alphabet: alphabet, seed: seed });
+    const seq = core.generateSequence({ n: 0, trials: 10, targetRate: 0, alphabet: alphabet, seed: seed });
     if (seq.symbols.length !== 10) bad++;
     if (seq.targets !== 0) bad++;
     if (seq.isTarget.filter(Boolean).length !== 0) bad++;
-    if (seq.isLure.filter(Boolean).length !== 0) bad++;
     seq.symbols.forEach(function (sym, i) {
       if (alphabet.indexOf(sym) < 0) bad++;
-      if (i > 0 && sym === seq.symbols[i - 1]) repeats++;   // 直前と同じは避ける
+      if (i > 0 && sym === seq.symbols[i - 1]) repeats++;
     });
   }
-  ok(bad === 0, 'n=0: 提示数どおりの列ができ、ターゲットもひっかけも作らない（200シード）');
+  ok(bad === 0, 'n=0: 出題数どおりの列ができ、ターゲットを作らない（200シード）');
   ok(repeats === 0, 'n=0: 直前と同じ記号は続かない');
-
-  const a = core.generateSequence({ n: 0, trials: 10, targetRate: 0.28, alphabet: alphabet, seed: 99 });
-  const b = core.generateSequence({ n: 0, trials: 10, targetRate: 0.28, alphabet: alphabet, seed: 99 });
-  ok(a.symbols.join('') === b.symbols.join(''), 'n=0 でも同じシードなら同じ列: ' + a.symbols.join(''));
-
-  // 離れた位置の重複は許す（10問を9種類から作るので必ず起きる）
-  const many = core.generateSequence({ n: 0, trials: 12, targetRate: 0.28, alphabet: alphabet, seed: 3 });
-  ok(new Set(many.symbols).size < 12, '離れた位置の重複は許す');
 }
 
-console.log('--- 出た順に全部答える ---');
+console.log('--- 自分のペース方式: 課題ごとの列 ---');
 {
-  const alphabet = '123456789'.split('');
-  const seq = core.generateSequence({ n: 0, trials: 10, targetRate: 0.28, alphabet: alphabet, seed: 5 });
-  // 正解列 = 提示された列そのもの。10問なら10題出て10問答える。
-  const expected = seq.symbols.slice(0, 10 - 0);
-  ok(expected.length === 10, '10問と決めたら10問答える');
-  ok(expected.join('') === seq.symbols.join(''), '正解列 = 提示された列そのもの ' + expected.join(''));
+  const base = { n: 2, trials: 7, seed: 4242, answerMax: 9, ops: paced.OPS, excludeCenter: true };
 
-  const perfect = expected.map(sym => ({ symbol: sym, rt: 800 }));
-  const s1 = core.scoreRecall(expected, perfect);
-  ok(s1.correct === 10 && s1.accuracy === 1, '全部合っていれば正答率100%');
+  // 数字は 0〜9
+  const num = paced.makeBlock(Object.assign({}, base, { task: 'paced-number' }));
+  ok(num.symbols.length === 7, '数字: 出題数どおり');
+  ok(num.symbols.every(v => Number(v) >= 0 && Number(v) <= 9), '数字: 0〜9 に収まる');
+  ok(num.extras === null, '数字: 式などの付随データは無い');
 
-  // 途中から崩れた場合
-  const partial = expected.map((sym, i) => ({ symbol: i < 6 ? sym : 'X', rt: 800 }));
-  const s2 = core.scoreRecall(expected, partial);
-  ok(s2.correct === 6 && s2.streak === 6, '6問目まで正解なら連続正答は6');
+  // 位置は中央を除いた8マス
+  const pos = paced.makeBlock(Object.assign({}, base, { task: 'paced-position' }));
+  ok(pos.symbols.every(v => v !== '4'), '位置: 中央マスは出ない');
+  ok(pos.symbols.every(v => Number(v) >= 0 && Number(v) <= 8), '位置: 0〜8 のマス番号');
+
+  // 計算は式が付く
+  const calcB = paced.makeBlock(Object.assign({}, base, { task: 'calc-arith' }));
+  ok(calcB.extras && calcB.extras.length === 7, '計算: 式が出題数ぶん付く');
+
+  // 同じシードなら同じ列
+  const again = paced.makeBlock(Object.assign({}, base, { task: 'paced-position' }));
+  ok(pos.symbols.join('') === again.symbols.join(''), '同じシードなら同じ列');
+
+  // 課題IDはリアルタイムのモダリティと衝突させない
+  ok(paced.taskIds().indexOf('visual-number') < 0 && paced.taskIds().indexOf('visual-position') < 0,
+     '課題IDはモダリティIDと別（' + paced.taskIds().join(', ') + '）');
 }
 
-console.log('--- 問題数の増減の目安 (n = 0) ---');
-ok(core.suggestNextTrials(10, 0, 0) === 11, '全問正解 → 問題数 +1');
-ok(core.suggestNextTrials(10, 0, 1) === 10, '誤答1 → 据え置き');
-ok(core.suggestNextTrials(10, 0, 4) === 9, '誤答4 → 問題数 -1');
-ok(core.suggestNextTrials(2, 0, 9) === 2, '2問より短くはしない');
+console.log('--- 自分のペース方式: 採点する範囲 ---');
+{
+  // 出題 N + 回答数。最初の N 問は覚えるだけなので採点しない。
+  const n = 2, answers = 5;
+  const block = paced.makeBlock({ task: 'paced-number', n: n, trials: n + answers, seed: 99, excludeCenter: true });
+  const expected = block.symbols.slice(0, answers);
+  ok(expected.length === 5, 'N2・回答数5 なら採点は5問');
+  ok(core.scoreAnswers(expected, expected.map(v => ({ symbol: v, rt: 800 }))).accuracy === 1,
+     '全部合っていれば正答率100%');
+}
 
-console.log('--- 計算Nバック: 式の作り方 ---');
+console.log('--- 計算Nバック: 式の作り方 ---');console.log('--- 計算Nバック: 式の作り方 ---');
 {
   const rng = core.makeRng(12345);
-  const opt = { maxOperand: 9, ops: calc.OPS };
+  const opt = { maxOperand: 9, ops: paced.OPS };
   let bad = [];
   const opCount = { '+': 0, '-': 0, '\u00d7': 0, '\u00f7': 0 };
 
   for (let a = 0; a <= 9; a++) {
     for (let k = 0; k < 200; k++) {
-      const pr = calc.makeProblem(a, rng, opt);
+      const pr = paced.makeProblem(a, rng, opt);
       opCount[pr.op]++;
       // 式を実際に計算して、狙った答えになるか
       let v;
@@ -253,7 +257,7 @@ console.log('--- 計算Nバック: 割り算 ---');
   const rng = core.makeRng(777);
   let n = 0, bad = 0;
   for (let a = 0; a <= 9; a++) {
-    calc.candidates(a, '\u00f7', 9).forEach(function (pair) {
+    paced.candidates(a, '\u00f7', 9).forEach(function (pair) {
       n++;
       if (pair[1] === 0) bad++;
       if (pair[0] % pair[1] !== 0) bad++;
@@ -265,17 +269,17 @@ console.log('--- 計算Nバック: 割り算 ---');
 
 console.log('--- 計算Nバック: ブロックの再現性 ---');
 {
-  const cfg = { n: 2, trials: 17, seed: 424242, answerMax: 9, ops: calc.OPS };
-  const a = calc.makeBlock(cfg);
-  const b = calc.makeBlock(cfg);
-  ok(a.problems.map(p => p.text).join('|') === b.problems.map(p => p.text).join('|'),
-     '同じシードなら同じ式が出る: ' + a.problems.slice(0, 3).map(p => p.text).join(', ') + ' …');
-  const c = calc.makeBlock({ n: 2, trials: 17, seed: 424243, answerMax: 9, ops: calc.OPS });
-  ok(a.problems.map(p => p.text).join('|') !== c.problems.map(p => p.text).join('|'), '違うシードなら違う式');
-  ok(a.answers.length === 17 && a.problems.length === 17, '出題数どおりの長さ');
-  ok(a.answers.every(v => Number(v) >= 0 && Number(v) <= 9), '答えはすべて一桁');
+  const cfg = { task: 'calc-arith', n: 2, trials: 17, seed: 424242, answerMax: 9, ops: paced.OPS };
+  const a = paced.makeBlock(cfg);
+  const b = paced.makeBlock(cfg);
+  ok(a.extras.map(p => p.text).join('|') === b.extras.map(p => p.text).join('|'),
+     '同じシードなら同じ式が出る: ' + a.extras.slice(0, 3).map(p => p.text).join(', ') + ' …');
+  const c = paced.makeBlock({ task: 'calc-arith', n: 2, trials: 17, seed: 424243, answerMax: 9, ops: paced.OPS });
+  ok(a.extras.map(p => p.text).join('|') !== c.extras.map(p => p.text).join('|'), '違うシードなら違う式');
+  ok(a.symbols.length === 17 && a.extras.length === 17, '出題数どおりの長さ');
+  ok(a.symbols.every(v => Number(v) >= 0 && Number(v) <= 9), '答えはすべて一桁');
   let consec = 0;
-  for (let i = 1; i < a.answers.length; i++) if (a.answers[i] === a.answers[i - 1]) consec++;
+  for (let i = 1; i < a.symbols.length; i++) if (a.symbols[i] === a.symbols[i - 1]) consec++;
   ok(consec === 0, '直前と同じ答えは連続しない');
 }
 
@@ -283,15 +287,15 @@ console.log('--- 計算Nバック: 採点 ---');
 {
   // 出題 N+回答数、採点対象は先頭 回答数 個（最初の N 問は覚えるだけ）
   const n = 2, answers = 5;
-  const block = calc.makeBlock({ n: n, trials: n + answers, seed: 99, answerMax: 9, ops: calc.OPS });
-  const expected = block.answers.slice(0, answers);
+  const block = paced.makeBlock({ task: 'calc-arith', n: n, trials: n + answers, seed: 99, answerMax: 9, ops: paced.OPS });
+  const expected = block.symbols.slice(0, answers);
   ok(expected.length === 5, 'N2・回答数5 なら採点は5問');
 
   const perfect = expected.map(v => ({ symbol: v, rt: 2000 }));
-  ok(core.scoreRecall(expected, perfect).accuracy === 1, '全部合っていれば正答率100%');
+  ok(core.scoreAnswers(expected, perfect).accuracy === 1, '全部合っていれば正答率100%');
 
   const partial = expected.map((v, i) => ({ symbol: i < 3 ? v : 'X', rt: 2000 }));
-  const sc = core.scoreRecall(expected, partial);
+  const sc = core.scoreAnswers(expected, partial);
   ok(sc.correct === 3 && sc.streak === 3, '3問目まで正解なら連続正答は3');
   ok(sc.hitRate === undefined && sc.faRate === undefined, 'ヒット率・誤警報率は算出しない');
 }
@@ -308,11 +312,11 @@ ok(core.suggestNextNByRate(1, 0) === 1, 'N1 より下がらない');
 console.log('--- 計算Nバック: 2桁への拡張余地 ---');
 {
   // answerMax を上げても同じ関数で作れること（今は使わないが、作りとして通ることを固定する）
-  const block = calc.makeBlock({ n: 2, trials: 12, seed: 5, answerMax: 99, ops: calc.OPS });
-  const vals = block.answers.map(Number);
+  const block = paced.makeBlock({ task: 'calc-arith', n: 2, trials: 12, seed: 5, answerMax: 99, ops: paced.OPS });
+  const vals = block.symbols.map(Number);
   ok(vals.some(v => v > 9), 'answerMax=99 なら2桁の答えも出る（最大 ' + Math.max.apply(null, vals) + '）');
   let bad = 0;
-  block.problems.forEach(function (pr) {
+  block.extras.forEach(function (pr) {
     let v;
     if (pr.op === '+') v = pr.left + pr.right;
     else if (pr.op === '-') v = pr.left - pr.right;
