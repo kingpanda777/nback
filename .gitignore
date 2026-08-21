@@ -1,0 +1,7 @@
+# OS / エクスプローラが勝手に作るもの
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 書き出した履歴（個人の記録なので上げない）
+nback-history-*.jsonl
