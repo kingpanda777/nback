@@ -456,6 +456,20 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 .history-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 .history-bar .spacer { flex: 1; }
 
+/* 方式ごとの区切り。同じ図に混ぜないための見出し。 */
+.mode-block { margin-bottom: 26px; }
+.mode-block:last-of-type { margin-bottom: 8px; }
+.mode-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 1rem;
+  margin: 0 0 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+.mode-count { font-size: .78rem; color: var(--dim); font-weight: 400; }
+
 .chart { width: 100%; height: auto; display: block; }
 .chart .grid { stroke: #2c3442; stroke-width: 1; }
 .chart .tick { fill: #8b96a7; font-size: 11px; }

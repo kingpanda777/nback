@@ -140,6 +140,10 @@
   }
 
   // ---- 描画 ---------------------------------------------------------------
+  /* 方式ごとに区切って描く。
+     リアルタイム判定と提示後入力は、難易度のつまみ（N / 問題数）も指標も別物なので、
+     同じ図に重ねると読めない。横軸を共有すると、片方の記録の位置に
+     もう片方の穴が空くだけで、推移としても嘘になる。 */
   function render(container, records, opts) {
     opts = opts || {};
 
@@ -157,133 +161,151 @@
       return;
     }
 
-    const hasRealtime = rs.some(r => mode(r) === 'realtime');
-    const hasRecall = rs.some(r => mode(r) === 'recall');
+    const byMode = {
+      realtime: rs.filter(r => mode(r) === 'realtime'),
+      recall: rs.filter(r => mode(r) === 'recall')
+    };
 
     let html = '';
+    ['realtime', 'recall'].forEach(function (m) {
+      if (byMode[m].length) html += modeSection(m, byMode[m]);
+    });
+    html += blockList(rs, byMode.realtime.length > 0, byMode.recall.length > 0);
 
-    // --- N の推移（モダリティ別） ---
-    // 提示後に入力する方式は Nバックではない（n = 0）ので、この図には出さない。
-    const mods = Array.from(new Set(rs.map(r => r.modality)));
-    const hasN = rs.some(r => r.n > 0);
-    if (hasN) {
-      const nSeries = mods.map(function (m) {
-        return {
-          label: modalityLabel(m),
-          color: colorFor(m),
-          points: rs.map((r, i) => ({ r: r, i: i }))
-            .filter(o => o.r.modality === m && o.r.n > 0)
-            .map(o => ({ x: o.i, y: o.r.n, title: localDate(o.r.datetime) + '  N' + o.r.n }))
-        };
-      }).filter(sr => sr.points.length);
-      const nMax = Math.max.apply(null, rs.filter(r => r.n > 0).map(r => r.n));
-      const nTop = Math.max(nMax, 3);
-      const nTicks = [];
-      for (let v = 1; v <= nTop; v++) nTicks.push({ v: v, label: 'N' + v });
+    container.innerHTML = html;
+  }
 
-      html += '<section class="card"><h3>N の推移</h3>' +
-        lineChart({
-          title: 'N の推移', series: nSeries, xMax: rs.length - 1,
-          yMin: 0.5, yMax: nTop + 0.5, yTicks: nTicks, xLabels: xLabelsFor(rs)
-        }) + legend(nSeries) + '</section>';
-    }
+  // 方式1つ分。難易度の推移 → 成績の推移 → 日付ごと の順。
+  function modeSection(m, rs) {
+    const isRt = m === 'realtime';
+    return '<section class="mode-block">' +
+      '<h2 class="mode-title">' + MODE_LABEL[m] +
+      '<span class="mode-count">' + rs.length + ' ブロック</span></h2>' +
+      (isRt ? nChart(rs) : countChart(rs)) +
+      (isRt ? realtimeRateChart(rs) : recallRateChart(rs)) +
+      dateTable(rs, isRt) +
+      '</section>';
+  }
 
-    // --- 提示後に入力する方式では、問題数が難易度そのものなので併せて出す ---
-    if (hasRecall) {
-      const tSeries = [{
-        label: '問題数', color: '#d98ce0',
-        points: rs.map((r, i) => ({ r: r, i: i })).filter(o => mode(o.r) === 'recall')
-          .map(o => ({ x: o.i, y: o.r.trials, title: localDate(o.r.datetime) + '  ' + o.r.trials + '問' }))
-      }];
-      const tMax = Math.max.apply(null, tSeries[0].points.map(p => p.y));
-      const tTop = Math.max(tMax, 4);
-      const tTicks = [];
-      for (let v = 2; v <= tTop; v += (tTop > 12 ? 4 : 2)) tTicks.push({ v: v, label: v + '問' });
-      html += '<section class="card"><h3>問題数の推移（提示後に入力）</h3>' +
-        lineChart({
-          title: '問題数の推移', series: tSeries, xMax: rs.length - 1,
-          yMin: 1, yMax: tTop + 1, yTicks: tTicks, xLabels: xLabelsFor(rs)
-        }) + '</section>';
-    }
+  function card(title, body) {
+    return '<section class="card"><h3>' + title + '</h3>' + body + '</section>';
+  }
 
-    // --- 成績 ---
-    // リアルタイム判定では正答率ひとつにまとめない。「一致と思ったら全部押す」戦略はここで見える。
-    const rateSeries = [];
-    if (hasRealtime) {
-      rateSeries.push({ label: 'ヒット率', color: '#6fd6a8',
-        points: rs.map((r, i) => ({ r: r, i: i })).filter(o => mode(o.r) === 'realtime')
-          .map(o => ({ x: o.i, y: o.r.hitRate, title: localDate(o.r.datetime) + '  ヒット ' + pct(o.r.hitRate) })) });
-      rateSeries.push({ label: '誤警報率', color: '#e08585',
-        points: rs.map((r, i) => ({ r: r, i: i })).filter(o => mode(o.r) === 'realtime')
-          .map(o => ({ x: o.i, y: o.r.faRate, title: localDate(o.r.datetime) + '  誤警報 ' + pct(o.r.faRate) })) });
-    }
-    if (hasRecall) {
-      rateSeries.push({ label: '正答率', color: '#6ea8ff',
-        points: rs.map((r, i) => ({ r: r, i: i })).filter(o => mode(o.r) === 'recall')
-          .map(o => ({ x: o.i, y: o.r.accuracy, title: localDate(o.r.datetime) + '  正答 ' + pct(o.r.accuracy) })) });
-    }
-    const rateTitle = hasRealtime && hasRecall ? 'ヒット率 / 誤警報率 / 正答率'
-      : (hasRealtime ? 'ヒット率 / 誤警報率' : '正答率');
-    html += '<section class="card"><h3>' + rateTitle + '</h3>' +
-      lineChart({
-        title: rateTitle, series: rateSeries, xMax: rs.length - 1,
-        yMin: 0, yMax: 1,
-        yTicks: [{ v: 0, label: '0%' }, { v: 0.5, label: '50%' }, { v: 1, label: '100%' }],
-        xLabels: xLabelsFor(rs)
-      }) + legend(rateSeries) + '</section>';
+  // モダリティごとに1本の線を引く。x はこの方式の中での通し番号。
+  function seriesByModality(rs, valueOf, titleOf) {
+    return Array.from(new Set(rs.map(r => r.modality))).map(function (mo) {
+      return {
+        label: modalityLabel(mo),
+        color: colorFor(mo),
+        points: rs.map((r, i) => ({ r: r, i: i }))
+          .filter(o => o.r.modality === mo)
+          .map(o => ({ x: o.i, y: valueOf(o.r), title: titleOf(o.r) }))
+      };
+    }).filter(sr => sr.points.length);
+  }
 
-    // --- 日付ごとの最高N ---
-    html += '<section class="card"><h3>日付ごと</h3><div class="table-scroll">' +
-      '<table class="grid-table"><thead><tr>' +
-      '<th>日付</th><th>ブロック</th>' +
-      (hasN ? '<th>最高N</th>' : '') +
-      (hasRecall ? '<th>最多問題数</th>' : '') +
-      (hasRealtime ? '<th>ヒット率</th><th>誤警報率</th><th>d&prime;</th>' : '') +
-      (hasRecall ? '<th>正答率</th>' : '') +
-      '</tr></thead><tbody>' +
-      byDate(rs).map(d =>
-        '<tr><td>' + d.date + '</td><td>' + d.blocks + '</td>' +
-        (hasN ? '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' : '') +
-        (hasRecall ? '<td class="strong">' + (d.maxRecallCount ? d.maxRecallCount + '問' : '—') + '</td>' : '') +
-        (hasRealtime ? '<td>' + pct(d.hitRate) + '</td><td>' + pct(d.faRate) + '</td><td>' + num(d.dPrime, 2) + '</td>' : '') +
-        (hasRecall ? '<td>' + pct(d.accuracy) + '</td>' : '') +
-        '</tr>'
-      ).join('') + '</tbody></table></div></section>';
+  // 難易度のつまみ：リアルタイム判定は N
+  function nChart(rs) {
+    const sr = seriesByModality(rs, r => r.n, r => localDate(r.datetime) + '  N' + r.n);
+    const top = Math.max(Math.max.apply(null, rs.map(r => r.n)), 3);
+    const ticks = [];
+    for (let v = 1; v <= top; v++) ticks.push({ v: v, label: 'N' + v });
+    return card('N の推移', lineChart({
+      title: 'N の推移', series: sr, xMax: rs.length - 1,
+      yMin: 0.5, yMax: top + 0.5, yTicks: ticks, xLabels: xLabelsFor(rs)
+    }) + legend(sr));
+  }
 
-    // --- ブロック一覧 ---
-    // 方式で意味のある列が違うので、該当しないところは — にする。
-    html += '<section class="card"><h3>ブロック一覧</h3><div class="table-scroll">' +
-      '<table class="grid-table"><thead><tr>' +
-      '<th>日時</th>' + (hasN ? '<th>N</th>' : '') +
+  // 難易度のつまみ：提示後に入力は問題数
+  function countChart(rs) {
+    const sr = seriesByModality(rs, r => r.trials, r => localDate(r.datetime) + '  ' + r.trials + '問');
+    const top = Math.max(Math.max.apply(null, rs.map(r => r.trials)), 4);
+    const step = top > 12 ? 4 : 2;
+    const ticks = [];
+    for (let v = 2; v <= top; v += step) ticks.push({ v: v, label: v + '問' });
+    return card('問題数の推移', lineChart({
+      title: '問題数の推移', series: sr, xMax: rs.length - 1,
+      yMin: 1, yMax: top + 1, yTicks: ticks, xLabels: xLabelsFor(rs)
+    }) + legend(sr));
+  }
+
+  const PCT_TICKS = [{ v: 0, label: '0%' }, { v: 0.5, label: '50%' }, { v: 1, label: '100%' }];
+
+  function rateChart(title, rs, series) {
+    return card(title, lineChart({
+      title: title, series: series, xMax: rs.length - 1,
+      yMin: 0, yMax: 1, yTicks: PCT_TICKS, xLabels: xLabelsFor(rs)
+    }) + legend(series));
+  }
+
+  // 正答率ひとつにまとめない。「一致と思ったら全部押す」戦略はここで見える。
+  function realtimeRateChart(rs) {
+    return rateChart('ヒット率 / 誤警報率', rs, [
+      { label: 'ヒット率', color: '#6fd6a8',
+        points: rs.map((r, i) => ({ x: i, y: r.hitRate, title: localDate(r.datetime) + '  ヒット ' + pct(r.hitRate) })) },
+      { label: '誤警報率', color: '#e08585',
+        points: rs.map((r, i) => ({ x: i, y: r.faRate, title: localDate(r.datetime) + '  誤警報 ' + pct(r.faRate) })) }
+    ]);
+  }
+
+  // こちらは「全部押す」に相当する抜け道がないので、正答率で見てよい
+  function recallRateChart(rs) {
+    return rateChart('正答率', rs, [
+      { label: '正答率', color: '#6ea8ff',
+        points: rs.map((r, i) => ({ x: i, y: r.accuracy, title: localDate(r.datetime) + '  正答 ' + pct(r.accuracy) })) }
+    ]);
+  }
+
+  function dateTable(rs, isRt) {
+    const head = isRt
+      ? '<th>日付</th><th>ブロック</th><th>最高N</th><th>ヒット率</th><th>誤警報率</th><th>d&prime;</th>'
+      : '<th>日付</th><th>ブロック</th><th>最多問題数</th><th>正答率</th>';
+    const rows = byDate(rs).map(function (d) {
+      return '<tr><td>' + d.date + '</td><td>' + d.blocks + '</td>' +
+        (isRt
+          ? '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' +
+            '<td>' + pct(d.hitRate) + '</td><td>' + pct(d.faRate) + '</td><td>' + num(d.dPrime, 2) + '</td>'
+          : '<td class="strong">' + (d.maxRecallCount ? d.maxRecallCount + '問' : '—') + '</td>' +
+            '<td>' + pct(d.accuracy) + '</td>') +
+        '</tr>';
+    }).join('');
+    return card('日付ごと', '<div class="table-scroll"><table class="grid-table"><thead><tr>' +
+      head + '</tr></thead><tbody>' + rows + '</tbody></table></div>');
+  }
+
+  /* ブロック一覧だけは方式で切らない。ここは集計ではなく時系列の記録そのもので、
+     どの順に何をやったかを見たい。行ごとに方式を出すので取り違えようがない。 */
+  function blockList(rs, hasRealtime, hasRecall) {
+    const rows = rs.slice().reverse().map(function (r) {
+      const m = mode(r);
+      const score = m === 'realtime'
+        ? 'ヒット ' + r.hits + '/' + r.targets + ' ・誤警報 ' + r.falseAlarms
+        : '正答 ' + r.correct + '/' + r.questions;
+      const length = m === 'realtime' ? r.trials + '試行' : r.trials + '問';
+      return '<tr>' +
+        '<td class="nowrap">' + localDate(r.datetime) + ' ' + localTime(r.datetime) + '</td>' +
+        (hasRealtime ? '<td class="strong">' + (r.n > 0 ? 'N' + r.n : '—') + '</td>' : '') +
+        '<td class="nowrap">' + esc(modalityLabel(r.modality)) + '</td>' +
+        '<td class="nowrap">' + MODE_LABEL[m] + '</td>' +
+        '<td class="nowrap">' + length + '</td>' +
+        '<td class="nowrap">' + score + '</td>' +
+        (hasRealtime ? '<td>' + pct(r.hitRate) + '</td><td>' + pct(r.faRate) + '</td><td>' + num(r.dPrime, 2) + '</td>' : '') +
+        (hasRecall ? '<td>' + pct(r.accuracy) + '</td>' : '') +
+        '<td>' + (r.meanRt === null || r.meanRt === undefined ? '—' : r.meanRt + 'ms') + '</td>' +
+        '<td class="mono">' + r.seed + '</td>' +
+        '<td class="row-actions nowrap">' +
+        '<button class="mini" data-replay="' + esc(r.datetime) + '">再挑戦</button>' +
+        '<button class="mini danger" data-delete="' + esc(r.datetime) + '">削除</button>' +
+        '</td></tr>';
+    }).join('');
+
+    return card('ブロック一覧', '<div class="table-scroll"><table class="grid-table"><thead><tr>' +
+      '<th>日時</th>' + (hasRealtime ? '<th>N</th>' : '') +
       '<th>モダリティ</th><th>方式</th><th>長さ</th><th>成績</th>' +
       (hasRealtime ? '<th>ヒット率</th><th>誤警報率</th><th>d&prime;</th>' : '') +
       (hasRecall ? '<th>正答率</th>' : '') +
       '<th>平均RT</th><th>シード</th><th></th>' +
-      '</tr></thead><tbody>' +
-      rs.slice().reverse().map(function (r) {
-        const m = mode(r);
-        const score = m === 'realtime'
-          ? 'ヒット ' + r.hits + '/' + r.targets + ' ・誤警報 ' + r.falseAlarms
-          : '正答 ' + r.correct + '/' + r.questions;
-        const length = m === 'realtime' ? r.trials + '試行' : r.trials + '問';
-        return '<tr>' +
-          '<td class="nowrap">' + localDate(r.datetime) + ' ' + localTime(r.datetime) + '</td>' +
-          (hasN ? '<td class="strong">' + (r.n > 0 ? 'N' + r.n : '—') + '</td>' : '') +
-          '<td class="nowrap">' + esc(modalityLabel(r.modality)) + '</td>' +
-          '<td class="nowrap">' + MODE_LABEL[m] + '</td>' +
-          '<td class="nowrap">' + length + '</td>' +
-          '<td class="nowrap">' + score + '</td>' +
-          (hasRealtime ? '<td>' + pct(r.hitRate) + '</td><td>' + pct(r.faRate) + '</td><td>' + num(r.dPrime, 2) + '</td>' : '') +
-          (hasRecall ? '<td>' + pct(r.accuracy) + '</td>' : '') +
-          '<td>' + (r.meanRt === null || r.meanRt === undefined ? '—' : r.meanRt + 'ms') + '</td>' +
-          '<td class="mono">' + r.seed + '</td>' +
-          '<td class="row-actions nowrap">' +
-          '<button class="mini" data-replay="' + esc(r.datetime) + '">再挑戦</button>' +
-          '<button class="mini danger" data-delete="' + esc(r.datetime) + '">削除</button>' +
-          '</td></tr>';
-      }).join('') + '</tbody></table></div></section>';
-
-    container.innerHTML = html;
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>');
   }
 
   NB.history = { render, byDate, modalityLabel, colorFor, localDate, localTime, pct, num, esc, mode, MODE_LABEL };
