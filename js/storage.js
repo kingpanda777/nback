@@ -79,9 +79,11 @@
   const DEFAULT_SETTINGS = {
     n: 2,
     modalityId: 'visual-number',
-    responseMode: 'realtime',   // 'realtime' = 提示中に押す / 'recall' = 提示後に入力
+    responseMode: 'realtime',   // 'realtime' = 提示中に押す / 'recall' = 提示後に入力 / 'calc' = 計算Nバック
     trialsExtra: 20,            // realtime: 1ブロック = N + 20 試行
     recallCount: 10,            // recall: 問題数。この数だけ提示して、この数だけ答える
+    calcAnswers: 15,            // calc: 採点する問題数。出題は N + この数
+    calcAnswerMax: 9,           // calc: 答えの上限。2桁に広げるならここを 99 にする
     targetRate: 0.28,
     stimulusMs: 500,
     isiMs: 2500,

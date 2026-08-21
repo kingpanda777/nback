@@ -227,6 +227,15 @@
   // ---- 提示後に入力する方式の難易度 ---------------------------------------
   // この方式の難易度は問題数（＝提示数）そのもの。
   // Jaeggi の考え方を、20試行ではなく数問のブロックに合わせて縮めた。
+  // 計算Nバックは1ブロックの問題数を自由に決められるので、件数の閾値だと
+  // 問題数によって意味が変わってしまう。割合で見る。
+  function suggestNextNByRate(currentN, accuracy) {
+    if (accuracy === null || accuracy === undefined) return currentN;
+    if (accuracy >= 0.9) return currentN + 1;
+    if (accuracy < 0.7) return Math.max(1, currentN - 1);
+    return currentN;
+  }
+
   function suggestNextTrials(trials, n, incorrect) {
     const floor = Math.max(2, n + 1);
     if (incorrect === 0) return trials + 1;
@@ -244,5 +253,5 @@
   }
 
   NB.core = { makeRng, randomSeed, generateSequence, score, scoreRecall,
-              dPrime, probit, suggestNextN, suggestNextTrials };
+              dPrime, probit, suggestNextN, suggestNextNByRate, suggestNextTrials };
 })(window.NB = window.NB || {});

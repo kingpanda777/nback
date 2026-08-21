@@ -15,7 +15,7 @@
   let historyFilter = 'all';
   let historyMode = 'all';
 
-  const MODE_LABEL = { realtime: 'リアルタイム判定', recall: '提示後に入力' };
+  const MODE_LABEL = { realtime: 'リアルタイム判定', recall: '提示後に入力', calc: '計算Nバック' };
 
   // ---- 画面切り替え -------------------------------------------------------
   function show(name) {
@@ -52,6 +52,7 @@
 
     bindNumber('#trials-extra', 'trialsExtra', 5, 200);
     bindNumber('#recall-count', 'recallCount', 2, 30);
+    bindNumber('#calc-answers', 'calcAnswers', 3, 60);
     bindNumber('#stimulus-ms', 'stimulusMs', 100, 5000);
     bindNumber('#isi-ms', 'isiMs', 200, 10000);
 
@@ -105,6 +106,13 @@
   function persist() { NB.store.saveSettings(settings); }
 
   function isRecall() { return settings.responseMode === 'recall'; }
+  function isCalc() { return settings.responseMode === 'calc'; }
+
+  // 計算Nバックは 採点する問題数 を決め、出題は N + その数になる。
+  // 最初の N 問は覚えるだけで答えないため。
+  function calcAnswers() {
+    return Math.max(3, Math.min(60, settings.calcAnswers));
+  }
 
   // 提示後に入力する方式は「問題数を決めて、その数だけ提示し、その数だけ答える」。
   // N は使わないので、この方式では列に N バック構造を作らない（core は n=0 で受ける）。
@@ -118,6 +126,7 @@
     $('#response-mode').value = settings.responseMode;
     $('#trials-extra').value = settings.trialsExtra;
     $('#recall-count').value = recallCount();
+    $('#calc-answers').value = calcAnswers();
     $('#stimulus-ms').value = settings.stimulusMs;
     $('#isi-ms').value = settings.isiMs;
     $('#target-rate').value = Math.round(settings.targetRate * 100);
@@ -126,20 +135,35 @@
     $('#exclude-center').checked = settings.excludeCenter !== false;
 
     // 混合モダリティは中央マスを数字の表示に使うので、位置には回せない
-    $('#row-exclude-center').hidden = settings.modalityId !== 'visual-position';
+    $('#row-exclude-center').hidden = isCalc() || settings.modalityId !== 'visual-position';
 
-    // 提示後に入力する方式では N・ターゲット率・ひっかけ・試行数は出番がない
-    $('#card-n').hidden = isRecall();
+    // 方式ごとに、意味のある設定だけ出す。
+    // 計算Nバックは独立した課題なので、モダリティも刺激列の設定も使わない。
+    $('#card-n').hidden = isRecall();                    // N を使うのは realtime と calc
+    $('#row-modality').hidden = isCalc();
     $('#row-recall-count').hidden = !isRecall();
-    $('#row-trials-extra').hidden = isRecall();
-    $('#row-target-rate').hidden = isRecall();
-    $('#row-lure').hidden = isRecall();
+    $('#row-calc-answers').hidden = !isCalc();
+    $('#row-trials-extra').hidden = isRecall() || isCalc();
+    $('#row-target-rate').hidden = isRecall() || isCalc();
+    $('#row-lure').hidden = isRecall() || isCalc();
+    $('#row-timing').hidden = isCalc();                  // 自分のペースなので時間設定は無い
 
     updateSetupSummary();
     updateSetupHelp();
   }
 
   function updateSetupSummary() {
+    if (isCalc()) {
+      const q = calcAnswers();
+      $('#setup-summary').textContent =
+        (settings.n + q) + '問を出題 → ' + q + '問に回答（最初の ' + settings.n + ' 問は覚えるだけ）';
+      $('#setup-note').textContent =
+        '足し算・引き算・掛け算・割り算。割り算は割り切れるものだけ、答えはすべて一桁です。' +
+        '時間制限はないので自分のペースで進められます。難しくするなら N を上げてください。';
+      $('#setup-note').hidden = false;
+      return;
+    }
+
     const trials = isRecall() ? recallCount() : settings.n + settings.trialsExtra;
     const secs = Math.round(trials * (settings.stimulusMs + settings.isiMs) / 1000);
     const time = Math.floor(secs / 60) + '分' + (secs % 60) + '秒';
@@ -160,6 +184,13 @@
 
   function updateSetupHelp() {
     const mod = NB.modalities[settings.modalityId];
+    if (isCalc()) {
+      $('#setup-help').innerHTML =
+        '式が1問ずつ出ます。その答えを覚えておき、' + settings.n +
+        ' 個前の答えを画面下の 0〜9 ボタンで入力します。<br>' +
+        '入力すると次の問題に進みます。キーボードは使いません。';
+      return;
+    }
     if (isRecall()) {
       let how;
       if (settings.modalityId === 'visual-position') how = 'マスをタップして選ぶ（キーなら 1〜9 が読み順のマス）';
@@ -177,6 +208,18 @@
 
   // ---- ブロック実行 -------------------------------------------------------
   function buildConfig(seed) {
+    if (isCalc()) {
+      // 計算Nバックは刺激列の設定（ターゲット率・lure・モダリティ）を使わない
+      return {
+        n: settings.n,
+        trials: settings.n + calcAnswers(),
+        responseMode: 'calc',
+        seed: (seed === null || seed === undefined) ? NB.core.randomSeed() : (seed >>> 0),
+        answerMax: settings.calcAnswerMax || 9,
+        answerDigits: 1,        // 2桁に広げるときはここを 2 にする
+        ops: NB.calc.OPS
+      };
+    }
     return {
       // 提示後に入力する方式は Nバックではないので n = 0（列に N バック構造を作らない）
       n: isRecall() ? 0 : settings.n,
@@ -198,11 +241,33 @@
     pendingSeed = config.seed;
 
     $('#run-n').textContent = config.n > 0 ? 'N' + config.n : config.trials + '問';
-    $('#run-modality').textContent = NB.modalities[config.channels[0].modalityId].label;
+    $('#run-modality').textContent = config.responseMode === 'calc'
+      ? NB.calc.MODALITY.label
+      : NB.modalities[config.channels[0].modalityId].label;
     $('#run-seed').textContent = 'seed ' + config.seed;
     setProgress(0, config.trials);
     setPhase(null);
     show('run');
+
+    // 計算Nバックは提示の作りが違う（タイマーを使わない）ので、専用の実行部に渡す
+    if (config.responseMode === 'calc') {
+      controller = NB.calc.runBlock(
+        { stage: $('#stage'), pad: $('#pad') },
+        config,
+        {
+          onTrialStart: function (i, total) { setProgress(i + 1, total); },
+          onFinish: function (record) {
+            controller = null;
+            lastRecord = record;
+            records = NB.store.append(record);
+            showResult(record);
+          },
+          onAbort: function () { controller = null; show('setup'); }
+        }
+      );
+      countdown(3, function () { if (controller) controller.start(); });
+      return;
+    }
 
     controller = NB.runBlock(
       { stage: $('#stage'), pad: $('#pad') },
@@ -265,7 +330,9 @@
       : 'N' + r.n + ' / ' + NB.history.modalityLabel(r.modality);
     $('#result-head').textContent = head + ' / ' + MODE_LABEL[r.responseMode];
     $('#result-seed').textContent = String(r.seed);
-    if (r.responseMode === 'recall') showRecallResult(r); else showRealtimeResult(r);
+    if (r.responseMode === 'calc') showCalcResult(r);
+    else if (r.responseMode === 'recall') showRecallResult(r);
+    else showRealtimeResult(r);
     show('result');
   }
 
@@ -326,6 +393,44 @@
     if (next > r.trials) advice = '誤答 ' + r.incorrect + '件 → 問題数を ' + next + ' に増やしてよい水準';
     else if (next < r.trials) advice = '誤答 ' + r.incorrect + '件 → 問題数を ' + next + ' に減らすのが目安';
     else advice = '誤答 ' + r.incorrect + '件 → 問題数 ' + r.trials + ' のまま継続';
+    $('#result-advice').textContent = advice;
+  }
+
+  // 計算Nバックは正答率で見る。ヒット率・誤警報率は使わない。
+  function showCalcResult(r) {
+    const ch = r.channels[0];
+    const esc = NB.history.esc;
+
+    $('#result-metrics').innerHTML = [
+      metric('正答率', NB.history.pct(r.accuracy), r.correct + ' / ' + r.questions + ' 問', 'good'),
+      metric('誤答', r.incorrect, '間違えた問題', r.incorrect ? 'bad' : ''),
+      metric('連続正答', r.streak, '頭から続けて正解した数', ''),
+      metric('平均反応時間', r.meanRt === null ? '—' : r.meanRt + 'ms', '1問あたり', '')
+    ].join('');
+
+    // どの式で崩れたかが見たいので、式ごと並べる
+    const rows = ch.expected.map(function (exp, i) {
+      const got = ch.answers[i];
+      const ok = ch.correctFlags[i] === '1';
+      return '<div class="recall-review-item ' + (ok ? 'ok' : 'ng') + '">' +
+        '<span class="rri-no">' + (i + 1) + '</span>' +
+        '<span class="rri-exp">' + esc(ch.problems[i]) + ' = ' + esc(exp) + '</span>' +
+        '<span class="rri-mark">' + (ok ? '○' : '×') + '</span>' +
+        '<span class="rri-got">' + (got === null ? '—' : esc(got)) + '</span>' +
+        '</div>';
+    }).join('');
+
+    $('#result-detail').innerHTML =
+      '<section class="card"><h3>問題ごと（式と正解 → 回答）</h3>' +
+      '<div class="recall-review recall-review-wide">' + rows + '</div></section>';
+
+    // 問題数が可変なので、件数ではなく正答率で目安を出す
+    const next = NB.core.suggestNextNByRate(r.n, r.accuracy);
+    const head = '正答率 ' + NB.history.pct(r.accuracy) + '（誤答 ' + r.incorrect + '件）→ ';
+    let advice;
+    if (next > r.n) advice = head + 'N' + next + ' に上げてよい水準';
+    else if (next < r.n) advice = head + 'N' + next + ' に下げるのが目安';
+    else advice = head + 'N' + r.n + ' のまま継続';
     $('#result-advice').textContent = advice;
   }
 
@@ -423,9 +528,20 @@
 
   // 記録に残した設定とシードで、同じ列をもう一度走らせる
   function replayRecord(r) {
+    settings.responseMode = r.responseMode || 'realtime';
+
+    // 計算Nバックはモダリティを持たないので、既存モードの設定には触らない
+    if (settings.responseMode === 'calc') {
+      settings.n = r.n;
+      settings.calcAnswers = r.questions;
+      persist();
+      syncSetupFromSettings();
+      startBlock(r.seed);
+      return;
+    }
+
     settings.modalityId = (r.settings.channels && r.settings.channels[0])
       ? r.settings.channels[0].modalityId : r.modality;
-    settings.responseMode = r.responseMode || 'realtime';
     if (settings.responseMode === 'recall') {
       settings.recallCount = r.trials;      // この方式は N を使わないので触らない
     } else {

@@ -399,6 +399,39 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 .answer-chip.filled { color: var(--text); background: var(--panel-2); }
 .answer-chip.current { border-color: var(--accent); color: var(--accent); }
 
+/* ---- 計算Nバック ---- */
+.stage.stage-calc {
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+}
+.calc-head { text-align: center; flex: none; }
+.calc-ask { font-size: 1rem; font-weight: 700; }
+.calc-problem {
+  font-size: clamp(2.6rem, 15vmin, 5rem);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  flex: none;
+}
+.calc-note { font-size: .82rem; color: var(--dim); text-align: center; flex: none; }
+
+/* 0〜9 の入力パッド。キーボードは使わないので、ここだけで完結させる。 */
+.pad.pad-calc { flex-direction: column; align-items: center; }
+.calc-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: min(86vw, 32vh, 320px);
+}
+.calc-digit { aspect-ratio: 1 / 1; }
+.calc-zero { grid-column: 1 / -1; aspect-ratio: auto; min-height: 56px; }
+.calc-next { width: min(86vw, 320px); min-height: 64px; font-size: 1.05rem; }
+
+/* 式は横に長いので、内訳は1列ぶんの幅を広めに取る */
+.recall-review-wide { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+
 /* ---- 結果：問題ごとの内訳 ---- */
 .recall-review {
   display: grid;

@@ -4,7 +4,9 @@ const fs = require('fs');
 const p = require('path');
 global.window = {};
 eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'core.js'), 'utf8'));
+eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'calc.js'), 'utf8'));
 const core = window.NB.core;
+const calc = window.NB.calc;
 
 let fails = 0;
 function ok(cond, msg) {
@@ -216,6 +218,112 @@ ok(core.suggestNextTrials(10, 0, 0) === 11, '全問正解 → 問題数 +1');
 ok(core.suggestNextTrials(10, 0, 1) === 10, '誤答1 → 据え置き');
 ok(core.suggestNextTrials(10, 0, 4) === 9, '誤答4 → 問題数 -1');
 ok(core.suggestNextTrials(2, 0, 9) === 2, '2問より短くはしない');
+
+console.log('--- 計算Nバック: 式の作り方 ---');
+{
+  const rng = core.makeRng(12345);
+  const opt = { maxOperand: 9, ops: calc.OPS };
+  let bad = [];
+  const opCount = { '+': 0, '-': 0, '\u00d7': 0, '\u00f7': 0 };
+
+  for (let a = 0; a <= 9; a++) {
+    for (let k = 0; k < 200; k++) {
+      const pr = calc.makeProblem(a, rng, opt);
+      opCount[pr.op]++;
+      // 式を実際に計算して、狙った答えになるか
+      let v;
+      if (pr.op === '+') v = pr.left + pr.right;
+      else if (pr.op === '-') v = pr.left - pr.right;
+      else if (pr.op === '\u00d7') v = pr.left * pr.right;
+      else v = pr.left / pr.right;
+      if (v !== a) bad.push(pr.text + ' = ' + v + ' (期待 ' + a + ')');
+      if (v < 0 || v > 9) bad.push('答えが一桁でない: ' + pr.text);
+      if (pr.op === '\u00f7' && pr.left % pr.right !== 0) bad.push('割り切れない: ' + pr.text);
+      if (pr.op === '\u00f7' && pr.right === 0) bad.push('0で割っている: ' + pr.text);
+      if (pr.op === '-' && pr.right < 1) bad.push('0を引いている: ' + pr.text);
+    }
+  }
+  ok(bad.length === 0, '答え0〜9 × 200回: 式の値が答えと一致し、一桁に収まる' + (bad.length ? ' / ' + bad[0] : ''));
+  ok(Object.keys(opCount).every(o => opCount[o] > 0),
+     '四則すべて出る（+' + opCount['+'] + ' -' + opCount['-'] + ' \u00d7' + opCount['\u00d7'] + ' \u00f7' + opCount['\u00f7'] + '）');
+}
+
+console.log('--- 計算Nバック: 割り算 ---');
+{
+  const rng = core.makeRng(777);
+  let n = 0, bad = 0;
+  for (let a = 0; a <= 9; a++) {
+    calc.candidates(a, '\u00f7', 9).forEach(function (pair) {
+      n++;
+      if (pair[1] === 0) bad++;
+      if (pair[0] % pair[1] !== 0) bad++;
+      if (pair[0] / pair[1] !== a) bad++;
+    });
+  }
+  ok(n > 0 && bad === 0, '割り算の候補は ' + n + ' 通り、すべて割り切れて答えが一致する');
+}
+
+console.log('--- 計算Nバック: ブロックの再現性 ---');
+{
+  const cfg = { n: 2, trials: 17, seed: 424242, answerMax: 9, ops: calc.OPS };
+  const a = calc.makeBlock(cfg);
+  const b = calc.makeBlock(cfg);
+  ok(a.problems.map(p => p.text).join('|') === b.problems.map(p => p.text).join('|'),
+     '同じシードなら同じ式が出る: ' + a.problems.slice(0, 3).map(p => p.text).join(', ') + ' …');
+  const c = calc.makeBlock({ n: 2, trials: 17, seed: 424243, answerMax: 9, ops: calc.OPS });
+  ok(a.problems.map(p => p.text).join('|') !== c.problems.map(p => p.text).join('|'), '違うシードなら違う式');
+  ok(a.answers.length === 17 && a.problems.length === 17, '出題数どおりの長さ');
+  ok(a.answers.every(v => Number(v) >= 0 && Number(v) <= 9), '答えはすべて一桁');
+  let consec = 0;
+  for (let i = 1; i < a.answers.length; i++) if (a.answers[i] === a.answers[i - 1]) consec++;
+  ok(consec === 0, '直前と同じ答えは連続しない');
+}
+
+console.log('--- 計算Nバック: 採点 ---');
+{
+  // 出題 N+回答数、採点対象は先頭 回答数 個（最初の N 問は覚えるだけ）
+  const n = 2, answers = 5;
+  const block = calc.makeBlock({ n: n, trials: n + answers, seed: 99, answerMax: 9, ops: calc.OPS });
+  const expected = block.answers.slice(0, answers);
+  ok(expected.length === 5, 'N2・回答数5 なら採点は5問');
+
+  const perfect = expected.map(v => ({ symbol: v, rt: 2000 }));
+  ok(core.scoreRecall(expected, perfect).accuracy === 1, '全部合っていれば正答率100%');
+
+  const partial = expected.map((v, i) => ({ symbol: i < 3 ? v : 'X', rt: 2000 }));
+  const sc = core.scoreRecall(expected, partial);
+  ok(sc.correct === 3 && sc.streak === 3, '3問目まで正解なら連続正答は3');
+  ok(sc.hitRate === undefined && sc.faRate === undefined, 'ヒット率・誤警報率は算出しない');
+}
+
+console.log('--- 計算Nバック: N の増減の目安 ---');
+// 問題数が可変なので、件数ではなく割合で判断する
+ok(core.suggestNextNByRate(2, 1) === 3, '正答率100% → N+1');
+ok(core.suggestNextNByRate(2, 0.9) === 3, '90% → N+1');
+ok(core.suggestNextNByRate(2, 0.833) === 2, '83%（6問中1問誤答）→ 据え置き');
+ok(core.suggestNextNByRate(2, 0.7) === 2, '70% → 据え置き');
+ok(core.suggestNextNByRate(2, 0.6) === 1, '60% → N-1');
+ok(core.suggestNextNByRate(1, 0) === 1, 'N1 より下がらない');
+
+console.log('--- 計算Nバック: 2桁への拡張余地 ---');
+{
+  // answerMax を上げても同じ関数で作れること（今は使わないが、作りとして通ることを固定する）
+  const block = calc.makeBlock({ n: 2, trials: 12, seed: 5, answerMax: 99, ops: calc.OPS });
+  const vals = block.answers.map(Number);
+  ok(vals.some(v => v > 9), 'answerMax=99 なら2桁の答えも出る（最大 ' + Math.max.apply(null, vals) + '）');
+  let bad = 0;
+  block.problems.forEach(function (pr) {
+    let v;
+    if (pr.op === '+') v = pr.left + pr.right;
+    else if (pr.op === '-') v = pr.left - pr.right;
+    else if (pr.op === '\u00d7') v = pr.left * pr.right;
+    else v = pr.left / pr.right;
+    if (v !== pr.answer) bad++;
+    if (pr.op === '\u00f7' && pr.left % pr.right !== 0) bad++;
+  });
+  ok(bad === 0, '2桁でも式の値と答えが一致し、割り算は割り切れる');
+}
+
 
 console.log('\n' + (fails === 0 ? 'すべて通過' : fails + ' 件 失敗'));
 process.exit(fails ? 1 : 0);
