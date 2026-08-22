@@ -182,7 +182,8 @@
         const s = NB.core.score(ch.seq.isTarget, ch.responses);
         return Object.assign({
           modality: ch.mod.id, key: ch.key, seed: ch.seq.seed,
-          lures: ch.seq.isLure.filter(Boolean).length,
+          lures: ch.seq.lures,
+          lurePositions: ch.seq.lurePositions,
           symbols: ch.seq.symbols.join(','),
           isTarget: ch.seq.isTarget.map(v => v ? 1 : 0).join(''),
           rts: ch.responses.map(r => r.rt)
@@ -223,6 +224,8 @@
       modality: perChannel.length === 1 ? head.modality : 'dual',
       trials: config.trials,
       seed: config.seed,
+      lure: !!config.lure,
+      lures: head.lures,
       settings: {
         stimulusMs: config.stimulusMs,
         isiMs: config.isiMs,

@@ -95,7 +95,9 @@
           <input type="checkbox" id="lure">
           <span>ひっかけ (lure) を許す</span>
         </label>
-        <p class="hint">N±1 の位置で一致する刺激。難易度が大きく上がるので既定は OFF。</p>
+        <p class="hint">N±1 の位置に同じ刺激を置く。難易度が大きく上がるので既定は OFF。</p>
+        <p class="hint warn" id="lure-calc-note" hidden>計算モードでは効きません。式は毎回違う見た目になり、
+          繰り返されるのは目に入らない「答え」だけなので、ひっかけとして働きません。OFF を勧めます。</p>
       </div>
 
       <button type="button" id="reset-settings" class="ghost">設定を既定に戻す</button>
@@ -117,6 +119,7 @@
       <span id="run-n" class="badge"></span>
       <span id="run-modality"></span>
       <span id="run-phase" class="phase-tag" hidden></span>
+      <span id="run-lure" class="lure-tag" hidden>ひっかけ</span>
       <span id="run-seed" class="mono dim"></span>
     </div>
     <div class="run-right">

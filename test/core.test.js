@@ -48,8 +48,7 @@ for (const n of [1, 2, 3, 4, 5]) {
         if (actual !== seq.isTarget[i]) { fails++; console.log('  NG isTarget mismatch i=' + i + ' n=' + n + ' seed=' + s); }
       }
       // lure OFF なら N±1 の一致がないこと
-      const lures = seq.isLure.filter(Boolean).length;
-      if (lures !== 0) { fails++; console.log('  NG lure leaked n=' + n + ' seed=' + s + ' count=' + lures); }
+      if (seq.lures !== 0) { fails++; console.log('  NG lure leaked n=' + n + ' seed=' + s + ' count=' + seq.lures); }
       if (seq.isTarget.filter(Boolean).length !== expected) { fails++; console.log('  NG isTarget total'); }
     }
   }
@@ -67,14 +66,68 @@ console.log('--- ターゲット率の実測 ---');
   ok(Math.abs(r - 0.28) < 0.03, '実測ターゲット率 ' + (r * 100).toFixed(1) + '% (設定 28%)');
 }
 
-console.log('--- lure ON ---');
+console.log('--- ひっかけ (lure) ---');
 {
-  let lured = 0;
-  for (let s = 0; s < 200; s++) {
-    const seq = core.generateSequence({ n: 3, trials: 23, targetRate: 0.28, alphabet: '12345678'.split(''), seed: s, lure: true });
-    lured += seq.isLure.filter(Boolean).length;
+  const A = '123456789'.split('');
+  // OFF: 1件も生じない（偶然の一致も作らない）
+  let off = 0;
+  for (let s = 0; s < 300; s++) {
+    off += core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: A, seed: s }).lures;
   }
-  ok(lured > 0, 'lure:true で N±1 一致が生じる（合計 ' + lured + ' 件 / 200ブロック）');
+  ok(off === 0, 'OFF: 300ブロックでひっかけ0件（偶然の一致も作らない）');
+
+  // ON: 決まった割合で置かれ、ターゲット数は崩れない
+  let on = 0, targets = 0, bad = 0;
+  for (let s = 0; s < 300; s++) {
+    const q = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: A, seed: s, lure: true });
+    on += q.lures;
+    targets += q.targets;
+    if (q.isTarget.filter(Boolean).length !== q.targets) bad++;
+    // 置いた位置と、実際に一致している位置が合っているか
+    if (q.lurePositions.length !== q.lures) bad++;
+    q.lurePositions.forEach(function (i) {
+      if (q.isTarget[i]) bad++;
+      const ok1 = (i - 1 >= 0 && q.symbols[i] === q.symbols[i - 1]);
+      const ok3 = (i - 3 >= 0 && q.symbols[i] === q.symbols[i - 3]);
+      if (!ok1 && !ok3) bad++;               // N=2 なので間隔は 1 か 3
+    });
+  }
+  ok(on > 0, 'ON: ひっかけが置かれる（1ブロックあたり ' + (on / 300).toFixed(1) + '件）');
+  ok(bad === 0, 'ON: 置いた位置は N±1 で一致し、ターゲットとは重ならない');
+  ok(Math.abs(targets / 300 - 6) < 0.01, 'ON でもターゲット数は変わらない（' + (targets / 300).toFixed(1) + '件）');
+
+  // 同じシード・同じ設定なら同じ列
+  const a = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: A, seed: 7, lure: true });
+  const b = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: A, seed: 7, lure: true });
+  ok(a.symbols.join('') === b.symbols.join(''), 'ON でも同じシードなら同じ列');
+  const c = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: A, seed: 7 });
+  ok(a.symbols.join('') !== c.symbols.join(''), 'ON と OFF では列が変わる');
+}
+
+console.log('--- ひっかけ: 自分のペース方式 ---');
+{
+  const A = '0123456789'.split('');
+  // ターゲットは置かないが、ひっかけは N±1 に置ける
+  let off = 0, on = 0, leak = 0;
+  for (let s = 0; s < 300; s++) {
+    const o = core.generateSequence({ n: 2, trials: 17, targetRate: 0, alphabet: A, seed: s });
+    const q = core.generateSequence({ n: 2, trials: 17, targetRate: 0, alphabet: A, seed: s, lure: true });
+    off += o.lures;
+    on += q.lures;
+    if (o.targets !== 0 || q.targets !== 0) leak++;
+    // N個前との一致は禁じない（禁じると「いま出ているものは答えではない」と分かってしまう）
+  }
+  ok(off === 0, 'OFF: ひっかけ0件');
+  ok(on > 0, 'ON: ひっかけが置かれる（1ブロックあたり ' + (on / 300).toFixed(1) + '件）');
+  ok(leak === 0, 'ターゲットは置かれない');
+
+  // N個前との一致が起こりうること（起こらないと答えが絞られてしまう）
+  let nbackMatches = 0;
+  for (let s = 0; s < 300; s++) {
+    const q = core.generateSequence({ n: 2, trials: 17, targetRate: 0, alphabet: A, seed: s });
+    for (let i = 2; i < 17; i++) if (q.symbols[i] === q.symbols[i - 2]) nbackMatches++;
+  }
+  ok(nbackMatches > 0, 'N個前と同じ記号も出る（' + nbackMatches + '件）。禁じると答えが絞られる');
 }
 
 console.log('--- 判定 ---');
@@ -169,7 +222,7 @@ console.log('--- 混合モダリティの記号列 ---');
       const actual = i >= 2 && seq.symbols[i] === seq.symbols[i - 2];
       if (actual !== seq.isTarget[i]) bad++;
     }
-    if (seq.isLure.filter(Boolean).length !== 0) bad++;
+    if (seq.lures !== 0) bad++;
   }
   ok(bad === 0, '2文字の記号でも列の整合性が保たれる（100シード）');
   ok(kinds.N > 0 && kinds.P > 0, '数字と位置が両方混ざる（数字 ' + kinds.N + ' / 位置 ' + kinds.P + '）');

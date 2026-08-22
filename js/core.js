@@ -32,21 +32,24 @@
 
   // ---- 刺激列の生成 -------------------------------------------------------
   /**
-   * generate_sequence(n, trials, target_rate, alphabet) -> list
    * @param {object} opt
    *   n           : 何個前と比較するか
    *   trials      : 試行数
-   *   targetRate  : ターゲット率 (0.25〜0.30 が標準)
+   *   targetRate  : ターゲット率。0 なら ターゲットを置かない
+   *                 （自分のペース方式は毎試行が出題なのでターゲットの概念がない）
    *   alphabet    : 記号の配列（数字でも位置番号でも文字でも同じ扱い）
    *   seed        : 乱数シード
-   *   lure        : true なら N±1 の一致（ひっかけ）を許す。既定 false
-   * @returns {{symbols:string[], isTarget:boolean[], isLure:boolean[], seed:number, targets:number}}
+   *   lure        : ひっかけ（N±1 の位置に同じ記号）を置くか。既定 false
+   *   lureRate    : lure:true のとき置く割合。既定 0.25
+   * @returns {{symbols, isTarget, isLure, lures, lurePositions, seed, targets}}
    */
   function generateSequence(opt) {
     const n = opt.n;
     const trials = opt.trials;
     const alphabet = opt.alphabet;
     const lure = !!opt.lure;
+    const lureRate = opt.lureRate === undefined ? 0.25 : opt.lureRate;
+    const targetRate = opt.targetRate || 0;
     const seed = (opt.seed === undefined || opt.seed === null) ? randomSeed() : (opt.seed >>> 0);
     const rng = makeRng(seed);
 
@@ -54,8 +57,7 @@
     if (trials < 1) throw new Error('trials は1以上必要');
     if (n > 0 && trials <= n) throw new Error('trials は n より多く必要');
 
-    // n = 0 は「Nバック構造を作らない」指示。
-    // 自分のペースで進む方式は、毎試行が出題なのでターゲットの概念がない。そこで使う。
+    // n = 0 は「Nバック構造も ひっかけも作らない」指示。
     if (n === 0) {
       const plain = new Array(trials);
       for (let i = 0; i < trials; i++) {
@@ -64,19 +66,31 @@
         plain[i] = pool[Math.floor(rng() * pool.length)];
       }
       return {
-        symbols: plain,
-        isTarget: new Array(trials).fill(false),
-        isLure: new Array(trials).fill(false),
-        seed: seed,
-        targets: 0
+        symbols: plain, isTarget: new Array(trials).fill(false),
+        isLure: new Array(trials).fill(false), lures: 0, lurePositions: [],
+        seed: seed, targets: 0
       };
     }
+
+    const plantTargets = targetRate > 0;
 
     // 最初の n 試行はターゲットになり得ない。残りから正確な個数を選ぶ。
     const eligible = [];
     for (let i = n; i < trials; i++) eligible.push(i);
-    const targetCount = Math.max(1, Math.round(opt.targetRate * eligible.length));
-    const targetSet = new Set(shuffled(eligible, rng).slice(0, targetCount));
+    const targetCount = plantTargets ? Math.max(1, Math.round(targetRate * eligible.length)) : 0;
+    const shuffledEligible = shuffled(eligible, rng);
+    const targetSet = new Set(shuffledEligible.slice(0, targetCount));
+
+    /* ひっかけを置く位置。ターゲット以外から選ぶ。
+       ひっかけの間隔は N-1 と N+1。N=1 のとき N-1=0 は間隔にならないので外す。 */
+    const lureLags = [n - 1, n + 1].filter(d => d >= 1 && d !== n);
+    const lureSet = new Set();
+    if (lure && lureLags.length) {
+      const cand = shuffledEligible.filter(i =>
+        !targetSet.has(i) && lureLags.some(d => i - d >= 0));
+      const count = Math.max(1, Math.round(lureRate * cand.length));
+      cand.slice(0, count).forEach(i => lureSet.add(i));
+    }
 
     const symbols = new Array(trials);
     const isTarget = new Array(trials).fill(false);
@@ -87,29 +101,61 @@
         isTarget[i] = true;
         continue;
       }
-      // 非ターゲット：n 個前と必ず違う記号にする。
-      // lure が OFF のときは n-1 / n+1 個前とも一致させない（偶然のひっかけを排除）。
-      const banned = new Set();
-      if (i - n >= 0) banned.add(symbols[i - n]);
-      if (!lure) {
-        if (i - (n - 1) >= 0 && n - 1 > 0) banned.add(symbols[i - (n - 1)]);
-        if (i - (n + 1) >= 0) banned.add(symbols[i - (n + 1)]);
+
+      // ひっかけを置く位置：N±1 の記号をそのまま持ってくる
+      if (lureSet.has(i)) {
+        const lags = shuffled(lureLags.filter(d => i - d >= 0), rng);
+        let placed = false;
+        for (const d of lags) {
+          const v = symbols[i - d];
+          // ターゲットを置く方式では、N個前と一致させてはいけない（ターゲットになってしまう）
+          if (plantTargets && i - n >= 0 && v === symbols[i - n]) continue;
+          symbols[i] = v;
+          placed = true;
+          break;
+        }
+        if (placed) continue;
+        lureSet.delete(i);   // 置けなかった。通常の生成に落とす。
       }
+
+      /* 通常の位置。ひっかけの間隔では一致させない。
+         こうしておくと、実際に生じるひっかけは「意図的に置いたものだけ」になり、
+         偶然の一致と混ざらない。lure が off なら1つも生じない。 */
+      const banned = new Set();
+      if (plantTargets && i - n >= 0) banned.add(symbols[i - n]);
+      lureLags.forEach(function (d) { if (i - d >= 0) banned.add(symbols[i - d]); });
+      // 直前と同じ記号も避ける（2回出たのか1回だったのか分からなくなるため）。
+      // ただし N=1 のときの1個前は「答えそのもの」なので縛らない。
+      if (n !== 1 && i - 1 >= 0) banned.add(symbols[i - 1]);
+
       let pool = alphabet.filter(s => !banned.has(s));
-      if (pool.length === 0) pool = alphabet.filter(s => s !== symbols[i - n]);
+      if (pool.length === 0) {
+        pool = plantTargets && i - n >= 0
+          ? alphabet.filter(s => s !== symbols[i - n])
+          : alphabet.slice();
+      }
       symbols[i] = pool[Math.floor(rng() * pool.length)];
     }
 
-    // 実際に生じたひっかけ位置を記録しておく（分析用。判定には使わない）
+    // 実際に生じたひっかけ位置。上の作りなので、置いた位置と一致するはず。
     const isLure = new Array(trials).fill(false);
+    const lurePositions = [];
     for (let i = 0; i < trials; i++) {
       if (isTarget[i]) continue;
-      for (const d of [n - 1, n + 1]) {
-        if (d > 0 && i - d >= 0 && symbols[i] === symbols[i - d]) { isLure[i] = true; break; }
+      for (const d of lureLags) {
+        if (i - d >= 0 && symbols[i] === symbols[i - d]) {
+          isLure[i] = true;
+          lurePositions.push(i);
+          break;
+        }
       }
     }
 
-    return { symbols, isTarget, isLure, seed, targets: targetCount };
+    return {
+      symbols: symbols, isTarget: isTarget, isLure: isLure,
+      lures: lurePositions.length, lurePositions: lurePositions,
+      seed: seed, targets: targetCount
+    };
   }
 
   // ---- 判定 ---------------------------------------------------------------

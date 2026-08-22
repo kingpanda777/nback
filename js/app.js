@@ -75,6 +75,7 @@
     $('#lure').addEventListener('change', function () {
       settings.lure = this.checked;
       persist();
+      syncSetupFromSettings();
     });
 
     $('#exclude-center').addEventListener('change', function () {
@@ -151,8 +152,11 @@
     $('#row-paced-answers').hidden = !isPaced();
     $('#row-trials-extra').hidden = isPaced();
     $('#row-target-rate').hidden = isPaced();
-    $('#row-lure').hidden = isPaced();
+    $('#row-lure').hidden = false;               // ひっかけは全方式で設定できる
     $('#row-timing').hidden = isPaced();         // 自分のペースなので時間設定は無い
+
+    // 計算だけは ひっかけ が効かないので、その場で断っておく
+    $('#lure-calc-note').hidden = !isCalcTask();
 
     updateSetupSummary();
     updateSetupHelp();
@@ -174,6 +178,7 @@
         note = '出たものを覚えて、N個前を答えます。時間制限はないので自分のペースで進められます。' +
           '難しくするなら N を上げてください。';
       }
+      if (settings.lure) note = 'ひっかけ ON。' + note;
       $('#setup-note').textContent = note;
       $('#setup-note').hidden = false;
       return;
@@ -217,6 +222,7 @@
         responseMode: 'paced',
         task: settings.pacedTask,
         seed: (seed === null || seed === undefined) ? NB.core.randomSeed() : (seed >>> 0),
+        lure: settings.lure,
         excludeCenter: settings.excludeCenter,
         answerMax: settings.calcAnswerMax || 9,
         answerDigits: 1,        // 計算の答えを2桁に広げるときはここを 2 にする
@@ -247,6 +253,7 @@
       ? NB.paced.label(config.task)
       : NB.modalities[config.channels[0].modalityId].label;
     $('#run-seed').textContent = 'seed ' + config.seed;
+    $('#run-lure').hidden = !config.lure;
     setProgress(0, config.trials);
     setPhase(null);
     show('run');
@@ -514,6 +521,7 @@
       settings.pacedTask = r.task || r.modality;
       settings.n = r.n;
       settings.pacedAnswers = r.questions;
+      settings.lure = !!(r.settings && r.settings.lure);
       if (r.settings && r.settings.excludeCenter !== undefined) {
         settings.excludeCenter = r.settings.excludeCenter !== false;
       }

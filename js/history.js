@@ -226,6 +226,27 @@
     return '<section class="card"><h3>' + title + '</h3>' + body + '</section>';
   }
 
+  /* ひっかけの有無。v7 までの記録はトップレベルに lure を持たないので settings を見る。
+     さらに古い記録（lure の概念が無かった頃）は false 扱いでよい。 */
+  function hasLure(r) {
+    if (r.lure !== undefined) return !!r.lure;
+    return !!(r.settings && r.settings.lure);
+  }
+
+  /* ひっかけの有無で成績の線を分ける。難易度が変わるので、同じ線に混ぜると推移が読めない。
+     片方しか無いときは分けない（線が1本のままで済む）。 */
+  function splitByLure(rs, label, color, lureColor, valueOf, titleOf) {
+    const on = rs.map((r, i) => ({ r: r, i: i })).filter(o => hasLure(o.r));
+    const off = rs.map((r, i) => ({ r: r, i: i })).filter(o => !hasLure(o.r));
+    const mk = (list, suffix, c) => ({
+      label: label + suffix, color: c,
+      points: list.map(o => ({ x: o.i, y: valueOf(o.r), title: titleOf(o.r) + suffix }))
+    });
+    if (!on.length) return [mk(off, '', color)];
+    if (!off.length) return [mk(on, '（ひっかけ）', lureColor)];
+    return [mk(off, '', color), mk(on, '（ひっかけ）', lureColor)];
+  }
+
   // 欠けている値を除いた最大。1件も無ければ 0。
   function maxOf(rs, pick) {
     const vals = rs.map(pick).filter(v => typeof v === 'number' && isFinite(v));
@@ -268,20 +289,17 @@
 
   // 正答率ひとつにまとめない。「一致と思ったら全部押す」戦略はここで見える。
   function realtimeRateChart(rs) {
-    return rateChart('ヒット率 / 誤警報率', rs, [
-      { label: 'ヒット率', color: '#6fd6a8',
-        points: rs.map((r, i) => ({ x: i, y: r.hitRate, title: localDate(r.datetime) + '  ヒット ' + pct(r.hitRate) })) },
-      { label: '誤警報率', color: '#e08585',
-        points: rs.map((r, i) => ({ x: i, y: r.faRate, title: localDate(r.datetime) + '  誤警報 ' + pct(r.faRate) })) }
-    ]);
+    const hit = splitByLure(rs, 'ヒット率', '#6fd6a8', '#2f8f68',
+      r => r.hitRate, r => localDate(r.datetime) + '  ヒット ' + pct(r.hitRate));
+    const fa = splitByLure(rs, '誤警報率', '#e08585', '#a34a4a',
+      r => r.faRate, r => localDate(r.datetime) + '  誤警報 ' + pct(r.faRate));
+    return rateChart('ヒット率 / 誤警報率', rs, hit.concat(fa));
   }
 
-  // 提示後入力と計算Nバックは「全部押す」に相当する抜け道がないので、正答率で見てよい
+  // 自分のペース方式は「全部押す」に相当する抜け道がないので、正答率で見てよい
   function accuracyChart(rs) {
-    return rateChart('正答率', rs, [
-      { label: '正答率', color: '#6ea8ff',
-        points: rs.map((r, i) => ({ x: i, y: r.accuracy, title: localDate(r.datetime) + '  正答 ' + pct(r.accuracy) })) }
-    ]);
+    return rateChart('正答率', rs, splitByLure(rs, '正答率', '#6ea8ff', '#3a63a8',
+      r => r.accuracy, r => localDate(r.datetime) + '  正答 ' + pct(r.accuracy)));
   }
 
   function dateTable(rs, key) {
@@ -307,6 +325,7 @@
     const hasN = rs.some(r => r.n > 0);
     const hasSdt = rs.some(r => mode(r) === 'realtime');
     const hasAcc = rs.some(r => r.accuracy !== null && r.accuracy !== undefined);
+    const anyLure = rs.some(hasLure);
 
     const rows = rs.slice().reverse().map(function (r) {
       const m = mode(r);
@@ -319,6 +338,7 @@
         (hasN ? '<td class="strong">' + (r.n > 0 ? 'N' + r.n : '—') + '</td>' : '') +
         '<td class="nowrap">' + esc(modalityLabel(r.modality)) + '</td>' +
         '<td class="nowrap">' + (MODE_LABEL[m] || m) + '</td>' +
+        (anyLure ? '<td class="nowrap">' + (hasLure(r) ? 'あり' + (r.lures ? ' ' + r.lures : '') : '—') + '</td>' : '') +
         '<td class="nowrap">' + length + '</td>' +
         '<td class="nowrap">' + score + '</td>' +
         (hasSdt ? '<td>' + pct(r.hitRate) + '</td><td>' + pct(r.faRate) + '</td><td>' + num(r.dPrime, 2) + '</td>' : '') +
@@ -333,7 +353,8 @@
 
     return card('ブロック一覧', '<div class="table-scroll"><table class="grid-table"><thead><tr>' +
       '<th>日時</th>' + (hasN ? '<th>N</th>' : '') +
-      '<th>モダリティ</th><th>方式</th><th>長さ</th><th>成績</th>' +
+      '<th>モダリティ</th><th>方式</th>' + (anyLure ? '<th>ひっかけ</th>' : '') +
+      '<th>長さ</th><th>成績</th>' +
       (hasSdt ? '<th>ヒット率</th><th>誤警報率</th><th>d&prime;</th>' : '') +
       (hasAcc ? '<th>正答率</th>' : '') +
       '<th>平均RT</th><th>シード</th><th></th>' +
@@ -341,5 +362,5 @@
   }
 
   NB.history = { render, byDate, modalityLabel, colorFor, localDate, localTime,
-                 pct, num, esc, mode, sectionKey, sectionLabel, MODE_LABEL };
+                 pct, num, esc, mode, hasLure, sectionKey, sectionLabel, MODE_LABEL };
 })(window.NB = window.NB || {});

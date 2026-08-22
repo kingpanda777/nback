@@ -259,12 +259,16 @@
   // ---- ブロックの生成 -----------------------------------------------------
   function makeBlock(config) {
     const task = TASKS[config.task];
-    const symbols = NB.core.generateSequence({
-      // 毎試行が出題なのでターゲットの概念がない。Nバック構造は作らない。
-      n: 0, trials: config.trials, targetRate: 0,
-      alphabet: task.alphabet(config), seed: config.seed
-    }).symbols;
-    return { symbols: symbols, extras: task.prepare(config, symbols) };
+    /* 毎試行が出題なのでターゲットは置かない（targetRate 0）。
+       ただし N は渡す。ひっかけを N±1 の位置に置くのに要るため。
+       N個前との一致は禁じない。禁じると「いま出ているものは答えではない」と
+       分かってしまい、選択肢が狭まる。 */
+    const seq = NB.core.generateSequence({
+      n: config.n, trials: config.trials, targetRate: 0,
+      alphabet: task.alphabet(config), seed: config.seed,
+      lure: !!config.lure
+    });
+    return { symbols: seq.symbols, extras: task.prepare(config, seq.symbols), seq: seq };
   }
 
   // ---- 実行 ---------------------------------------------------------------
@@ -403,6 +407,8 @@
       const channel = {
         modality: config.task,
         seed: config.seed,
+        lures: block.seq.lures,
+        lurePositions: block.seq.lurePositions,
         symbols: block.symbols.join(','),
         expected: expected,
         answers: given.map(a => a ? a.symbol : null),
@@ -430,8 +436,11 @@
         // この方式では使わない指標。履歴が同じ形で扱えるように null で置く。
         hitRate: null, faRate: null, dPrime: null,
         seed: config.seed,
+        lure: !!config.lure,
+        lures: block.seq.lures,
         settings: {
           task: config.task,
+          lure: !!config.lure,
           answerMax: config.answerMax || null,
           answerDigits: answerDigits,
           ops: config.task === 'calc-arith' ? (config.ops || OPS) : null,
