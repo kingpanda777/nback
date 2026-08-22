@@ -140,18 +140,34 @@ python -m http.server 8123
 
 **音（audio-letter）** — `js/modalities.js` に1つ足す。判定側は触らない。
 
+音声ファイルは `audio/` に用意済み（8音・MP3）。記号名がそのままファイル名になる。
+かなを選んだのは、英字の子音より聞き分けやすく、口に出して復唱しやすいため。
+
 ```js
 M['audio-letter'] = {
-  id: 'audio-letter', label: '音声 (子音)', kind: 'audio', defaultKey: 'L',
-  alphabet: () => ['C','H','K','L','Q','R','S','T'],
-  format: s => s,
+  id: 'audio-letter', label: '音声 (かな)', kind: 'audio', defaultKey: 'L',
+  alphabet: () => ['a','ka','shi','tsu','ne','ho','mu','ro'],
+  format: s => ({ a:'あ', ka:'か', shi:'し', tsu:'つ',
+                  ne:'ね', ho:'ほ', mu:'む', ro:'ろ' }[s]),
   mount: () => ({ audio: new Audio() }),
   show: (h, sym) => { h.audio.src = 'audio/' + sym + '.mp3'; h.audio.play(); },
   hide: () => {},
   unmount: () => {},
-  mountInput: (c, settings, onPick) => { /* 8個の文字ボタン */ }
+  mountInput: (c, settings, onPick) => { /* 8個のかなボタン */ }
 };
 ```
+
+`new Audio()` を毎回作り直すと読み込み待ちで発音が遅れる。8個を先に
+`Audio` で持っておき、`currentTime = 0` してから `play()` するほうが揃う。
+スマホは最初のタップより前に音を出せないので、「開始」ボタンで一度
+無音を再生して解錠しておくこと。
+
+音声を録り直すときは、無音の切り詰めで**閾値を上げすぎないこと**。
+`ほ` の /h/、`つ` の /ts/、`か` の /k/ は -72〜-45dB としか鳴っておらず、
+-40dB あたりで切ると子音が丸ごと消えて「ほ」が「お」に化ける。
+現行ファイルは閾値 -75dB（ノイズフロアは -90dB）で切り、さらに 15ms
+残してある。音量は8個とも RMS -29dB に揃えてある。ピーク合わせでは
+破裂音のある か/つ だけ小さく聞こえるので RMS で揃える。
 
 そのうえで `app.js` の `buildSetup()` にある `.filter(m => m.kind === 'visual')` を外す。
 

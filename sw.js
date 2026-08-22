@@ -4,7 +4,7 @@
    ファイルを更新したら VERSION を1つ上げること。
    ブラウザは sw.js の中身が変わったときだけ更新処理を始めるので、
    ここが同じままだと古いキャッシュが配られ続ける。 */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const CACHE = 'nback-' + VERSION;
 
 // sw.js からの相対パス。GitHub Pages のサブディレクトリ配信でもそのまま効く。
@@ -20,6 +20,15 @@ const ASSETS = [
   'js/history.js',
   'js/app.js',
   'manifest.webmanifest',
+  // 第2段階の音声（audio-letter）。記号名がそのままファイル名。
+  'audio/a.mp3',
+  'audio/ka.mp3',
+  'audio/shi.mp3',
+  'audio/tsu.mp3',
+  'audio/ne.mp3',
+  'audio/ho.mp3',
+  'audio/mu.mp3',
+  'audio/ro.mp3',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
