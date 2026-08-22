@@ -470,6 +470,23 @@ console.log('--- 自分のペース方式: 課題ごとの列 ---');
      '課題IDはモダリティIDと別（' + paced.taskIds().join(', ') + '）');
 }
 
+console.log('--- 自分のペース: 覚える区間の自動送り ---');
+{
+  // 自動送りは「消してから次を出す」で1問の区切りを見せる。
+  // hide が無い課題があると、その課題だけ区切りが見えなくなる。
+  const noHide = paced.taskIds().filter(id => typeof paced.TASKS[id].hide !== 'function');
+  ok(noHide.length === 0, '全課題が hide を持つ' +
+    (noHide.length ? '（無い: ' + noHide.join(',') + '）' : ''));
+
+  // 「次へ」を押させる文言は残さない（ボタン自体を廃止した）
+  const stale = paced.taskIds().filter(id => /次へ/.test(paced.TASKS[id].memoLabel || ''));
+  ok(stale.length === 0, 'memoLabel に「次へ」が残っていない' +
+    (stale.length ? '（残り: ' + stale.join(',') + '）' : ''));
+
+  // 計算だけは式を解く時間が要るので長め。他は既定で揃える。
+  ok(paced.TASKS['calc-arith'].memoMs > 2000, '計算の覚える時間は他より長い');
+}
+
 console.log('--- 自分のペース方式: 採点する範囲 ---');
 {
   // 出題 N + 回答数。最初の N 問は覚えるだけなので採点しない。

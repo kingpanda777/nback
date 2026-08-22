@@ -197,7 +197,8 @@
     if (isPaced()) {
       const q = pacedAnswers();
       $('#setup-summary').textContent =
-        (settings.n + q) + '問を出題 → ' + q + '問に回答（最初の ' + settings.n + ' 問は覚えるだけ）';
+        (settings.n + q) + '問を出題 → ' + q + '問に回答' +
+        '（最初の ' + settings.n + ' 問は覚えるだけ。自動で流れます）';
       let note;
       if (isCalcTask()) {
         note = '足し算・引き算・掛け算・割り算。割り算は割り切れるものだけ、答えはすべて一桁です。' +

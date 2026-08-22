@@ -1,7 +1,10 @@
 /* paced.js — 自分のペースで進むNバック課題。
 
    刺激が1つ出る → その内容を覚える → N個前に出た内容を入力する → 次が出る。
-   タイマーは使わない。入力した瞬間に次へ進む。
+   回答の区間はタイマーを使わない。入力した瞬間に次へ進む。
+
+   最初の N 問（覚えるだけの区間）はリアルタイム方式と同じく自動で流れる。
+   答える相手がいない区間で「次へ」を押させても操作が増えるだけなため。
 
    どの課題も同じ流れを共有する。違うのは「何を出すか」と「どう答えさせるか」だけなので、
    TASKS に1つ足せば課題が増える。実行部・採点・記録は共通。
@@ -33,6 +36,12 @@
   'use strict';
 
   const OPS = ['+', '-', '×', '÷'];
+
+  /* 覚える区間の自動送り。1問あたりの長さと、次の前に消す長さ。
+     消す時間が無いと、ひっかけ ON で同じ刺激が続いたとき
+     画面が変わらず、1問流れたことに気づけない。 */
+  const MEMO_MS = 2000;
+  const MEMO_GAP_MS = 400;
 
   // ---- 計算課題の式づくり -------------------------------------------------
   /**
@@ -183,35 +192,69 @@
     return { el: wrap, buttons: buttons.concat(pos.buttons, num.buttons) };
   }
 
-  /* 位置・数字・かなの3種類。上段に位置と数字、下段にかな。
-     ボタンは26個になるので、下段を横いっぱいに使って1つずつを大きく保つ。 */
+  /* かな8個を位置と同じ3×3の枠に収める。8音なので右下が1つ空く。
+     位置グリッドと同じ大きさ・同じ形にすることで、
+     26個あっても3つの塊として一目で見分けられる。 */
+  function kanaGridPad(container, symbols, onPick) {
+    const wrap = document.createElement('div');
+    wrap.className = 'paced-pad paced-pad-grid';
+    const buttons = [];
+    const order = NB.kanaClips.filter(k => symbols.indexOf(k) >= 0);
+    for (let i = 0; i < 9; i++) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'input-cell paced-cell paced-kana';
+      if (i < order.length) {
+        const k = order[i];
+        b.textContent = NB.kanaLabels[k] || k;
+        b.dataset.value = k;
+        NB.bindTap(b, function () { onPick(k); });
+      } else {
+        b.classList.add('blank');
+        b.disabled = true;               // 空きマス。位置グリッドの中央と同じ扱い
+      }
+      wrap.appendChild(b);
+      buttons.push(b);
+    }
+    container.appendChild(wrap);
+    return { el: wrap, buttons: buttons };
+  }
+
+  /* 位置・数字・かなの3種類。
+     左列に位置とかなを縦に（どちらも同じ3×3）、右列に数字を置く。
+     かなを横一列に伸ばすと入力パッド全体が縦に長くなり、
+     刺激や「もう一度聞く」に重なってしまう。 */
   function triPad(container, symbols, onPick) {
     const wrap = document.createElement('div');
     wrap.className = 'paced-pad-tri';
 
-    const top = document.createElement('div');
-    top.className = 'paced-pad-dual';
+    const left = document.createElement('div');
+    left.className = 'paced-tri-col';
+
     const posGroup = document.createElement('div');
     posGroup.className = 'paced-group';
     posGroup.innerHTML = '<div class="paced-group-label">位置</div>';
     const pos = gridPad(posGroup, symbols.filter(s => s[0] === 'P').map(s => s.slice(1)),
       cell => onPick('P' + cell));
-    top.appendChild(posGroup);
+    left.appendChild(posGroup);
 
+    const kanaGroup = document.createElement('div');
+    kanaGroup.className = 'paced-group';
+    kanaGroup.innerHTML = '<div class="paced-group-label">かな</div>';
+    const kana = kanaGridPad(kanaGroup, symbols.filter(s => s[0] === 'K').map(s => s.slice(1)),
+      k => onPick('K' + k));
+    left.appendChild(kanaGroup);
+    wrap.appendChild(left);
+
+    const right = document.createElement('div');
+    right.className = 'paced-tri-col';
     const numGroup = document.createElement('div');
     numGroup.className = 'paced-group';
     numGroup.innerHTML = '<div class="paced-group-label">数字</div>';
     const num = digitPad(numGroup, symbols.filter(s => s[0] === 'N').map(s => s.slice(1)),
       d => onPick('N' + d));
-    top.appendChild(numGroup);
-    wrap.appendChild(top);
-
-    const kanaGroup = document.createElement('div');
-    kanaGroup.className = 'paced-group paced-group-wide';
-    kanaGroup.innerHTML = '<div class="paced-group-label">かな</div>';
-    const kana = kanaPad(kanaGroup, symbols.filter(s => s[0] === 'K').map(s => s.slice(1)),
-      k => onPick('K' + k));
-    wrap.appendChild(kanaGroup);
+    right.appendChild(numGroup);
+    wrap.appendChild(right);
 
     container.appendChild(wrap);
     return { el: wrap, buttons: pos.buttons.concat(num.buttons, kana.buttons) };
@@ -285,10 +328,12 @@
         return { el: el };
       },
       show: function (h, symbol, extra) { h.el.textContent = extra.text; },
+      hide: function (h) { h.el.textContent = ''; },
       pad: digitPad,
       format: function (s) { return s; },
       askLabel: function (n) { return n + ' 個前の答えは？'; },
-      memoLabel: 'この式の答えを覚えて「次へ」'
+      memoLabel: 'この式の答えを覚える（自動で進みます）',
+      memoMs: 3000     // 式を計算してから覚えるので、他の課題より長めに取る
     },
 
     'paced-number': {
@@ -307,10 +352,11 @@
         return { el: el };
       },
       show: function (h, symbol) { h.el.textContent = symbol; },
+      hide: function (h) { h.el.textContent = ''; },
       pad: digitPad,
       format: function (s) { return s; },
       askLabel: function (n) { return n + ' 個前の数字は？'; },
-      memoLabel: 'この数字を覚えて「次へ」'
+      memoLabel: 'この数字を覚える（自動で進みます）'
     },
 
     'paced-mixed': {
@@ -330,12 +376,13 @@
         NB.modalities['mixed-number-position'].hide(h);
         NB.modalities['mixed-number-position'].show(h, symbol);
       },
+      hide: function (h) { NB.modalities['mixed-number-position'].hide(h); },
       pad: dualPad,
       format: function (s) {
         return s[0] === 'N' ? '数字' + s.slice(1) : NB.cellNames[Number(s.slice(1))];
       },
       askLabel: function (n) { return n + ' 個前に出たものは？'; },
-      memoLabel: 'これを覚えて「次へ」'
+      memoLabel: 'これを覚える（自動で進みます）'
     },
 
     'paced-position': {
@@ -349,10 +396,11 @@
         NB.modalities['visual-position'].hide(h);
         NB.modalities['visual-position'].show(h, symbol);
       },
+      hide: function (h) { NB.modalities['visual-position'].hide(h); },
       pad: gridPad,
       format: function (s) { return NB.cellNames[Number(s)]; },
       askLabel: function (n) { return n + ' 個前に光ったマスは？'; },
-      memoLabel: 'このマスを覚えて「次へ」'
+      memoLabel: 'このマスを覚える（自動で進みます）'
     },
 
     'paced-kana': {
@@ -375,10 +423,11 @@
         return h;
       },
       show: function (h, symbol) { playAndPulse(h, symbol); },
+      hide: function (h) { h.speaker.classList.remove('on'); },
       pad: kanaPad,
       format: function (s) { return NB.kanaLabels[s] || s; },
       askLabel: function (n) { return n + ' 個前に聞こえた音は？'; },
-      memoLabel: 'この音を覚えて「次へ」'
+      memoLabel: 'この音を覚える（自動で進みます）'
     },
 
     'paced-mixed-kana': {
@@ -400,8 +449,10 @@
         const mod = NB.modalities['mixed-number-position-kana'];
         const h = mod.mount(container);
         h.symbol = null;
-        // かなの試行だけ聞き直せるようにする。数字と位置は出たままなので要らない。
-        h.el.appendChild(makeReplay(h));
+        /* かなの試行だけ聞き直せるようにする。数字と位置は出たままなので要らない。
+           刺激の箱の中に絶対配置で置くと入力パッドに重なるので、
+           刺激の下（通常のフロー）に並べる。 */
+        container.appendChild(makeReplay(h));
         return h;
       },
       show: function (h, symbol) {
@@ -411,10 +462,11 @@
         mod.show(h, symbol);
         syncReplay(h);
       },
+      hide: function (h) { NB.modalities['mixed-number-position-kana'].hide(h); },
       pad: triPad,
       format: function (s) { return NB.modalities['mixed-number-position-kana'].format(s); },
       askLabel: function (n) { return n + ' 個前に出たものは？'; },
-      memoLabel: 'これを覚えて「次へ」'
+      memoLabel: 'これを覚える（自動で進みます）'
     }
   };
 
@@ -457,6 +509,9 @@
     let entry = '';            // 2桁以降に広げるときの入力バッファ
     let finished = false;
     let wakeLock = null;
+    let timers = [];         // 覚える区間の自動送りにだけ使う
+
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
 
     // 前のブロックの画面を消す
     stage.className = 'stage stage-paced';
@@ -481,13 +536,6 @@
 
     // --- 入力 ---
     const padHandle = task.pad(pad, task.alphabet(config), pushValue);
-
-    const nextBtn = document.createElement('button');
-    nextBtn.type = 'button';
-    nextBtn.className = 'primary paced-next';
-    nextBtn.textContent = '次へ';
-    NB.bindTap(nextBtn, function () { advance(); });
-    pad.appendChild(nextBtn);
 
     /* 1つ受け取る。1桁のうちは押した時点で確定。
        answerDigits を 2 にすれば、2桁そろってから確定する。 */
@@ -523,8 +571,20 @@
         : '第 ' + (trial - n + 1) + ' 問 / 全 ' + questions + ' 問';
       // 覚えるだけの間は答えさせない
       padHandle.el.hidden = memorising;
-      nextBtn.hidden = !memorising;
+      // 覚える区間は自動で流れるので、聞き直している暇はない
+      if (handle.replay) handle.replay.hidden = memorising || !handle.symbol;
       shownAt = performance.now();
+
+      /* 覚える区間は自動で次へ。手前で一度消すのは、
+         同じ刺激が続いたとき（ひっかけ ON で起きる）に
+         画面が変わらず1問流れたことに気づけないため。 */
+      if (memorising) {
+        const memoMs = task.memoMs || MEMO_MS;
+        timers.push(setTimeout(function () {
+          if (task.hide) task.hide(handle);
+        }, memoMs - MEMO_GAP_MS));
+        timers.push(setTimeout(advance, memoMs));
+      }
     }
 
     // ---- 画面を消さない ---------------------------------------------------
@@ -543,9 +603,9 @@
     function onKeyDown(e) { if (e.key === 'Escape') abort(); }
 
     function teardown() {
+      clearTimers();
       document.removeEventListener('keydown', onKeyDown);
       padHandle.buttons.forEach(b => b.disabled = true);
-      nextBtn.disabled = true;
       releaseWakeLock();
     }
 
