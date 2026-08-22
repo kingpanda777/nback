@@ -335,6 +335,36 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 }
 .stim-mixed-digit.on { opacity: 1; }
 
+/* 混合3系統のスピーカー。数字と同じくグリッドに重ねる。
+   かなの試行だけ光る。8音とも同じ見た目にすること。 */
+.stim-mixed-audio {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+}
+.stim-mixed-audio svg {
+  width: min(30vw, 20vh, 150px);
+  height: auto;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.stim-mixed-audio svg path:first-child { fill: var(--accent); stroke: none; }
+.stim-mixed-audio.on { opacity: 1; }
+.stim-mixed-audio.on .w1 { animation: audio-wave .5s ease-out; }
+.stim-mixed-audio.on .w2 { animation: audio-wave .5s ease-out .08s; }
+.stim-mixed-audio .wave { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .stim-mixed-audio.on .w1,
+  .stim-mixed-audio.on .w2 { animation: none; opacity: 1; }
+}
+
 /* ---- 自分のペースで進む方式 ---- */
 .lure-tag {
   background: #4a2f34;
@@ -409,6 +439,38 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 .paced-pad-dual .paced-pad { width: min(43vw, 24vh, 200px); gap: 6px; }
 .paced-pad-dual .paced-digit { font-size: 1.1rem; }
 .paced-pad-dual .paced-zero { min-height: 44px; }
+
+/* かな8個。4列×2行。 */
+.paced-pad-kana {
+  grid-template-columns: repeat(4, 1fr);
+  width: min(92vw, 420px);
+}
+.paced-kana { min-height: 48px; font-size: 1.25rem; }
+
+/* 混合3系統は26個になる。上段に位置と数字、下段にかなを横いっぱいで置く。
+   1つあたりが小さくなりすぎないよう、上段の2枚をさらに詰める。 */
+.paced-pad-tri {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.paced-group-wide { width: 100%; }
+.paced-pad-tri .paced-pad-dual .paced-pad { width: min(38vw, 20vh, 170px); gap: 5px; }
+.paced-pad-tri .paced-pad-dual .paced-zero { min-height: 40px; }
+.paced-pad-tri .paced-pad-kana { width: min(94vw, 440px); gap: 6px; }
+.paced-pad-tri .paced-kana { min-height: 44px; font-size: 1.15rem; }
+
+/* 聞き直し。いま出ている音だけを鳴らし直す（前の刺激には戻さない）。 */
+.paced-replay {
+  margin-top: 10px;
+  min-height: 44px;
+  padding: 0 18px;
+  align-self: center;
+}
+.paced-audio { display: flex; flex-direction: column; align-items: center; }
+.stim-mixed .paced-replay { position: absolute; left: 50%; bottom: -58px; transform: translateX(-50%); }
 
 .paced-next { width: min(86vw, 320px); min-height: 64px; font-size: 1.05rem; }
 

@@ -3,12 +3,20 @@
    刺激が1つ出る → その内容を覚える → N個前に出た内容を入力する → 次が出る。
    タイマーは使わない。入力した瞬間に次へ進む。
 
-   3つの課題が同じ流れを共有する。違うのは「何を出すか」と「どう答えさせるか」だけなので、
+   どの課題も同じ流れを共有する。違うのは「何を出すか」と「どう答えさせるか」だけなので、
    TASKS に1つ足せば課題が増える。実行部・採点・記録は共通。
 
-     calc-arith      式が出る → 答えを 0〜9 で入力
-     paced-number    数字が出る → その数字を 0〜9 で入力
-     paced-position  マスが光る → そのマスを3×3グリッドで入力
+     calc-arith        式が出る → 答えを 0〜9 で入力
+     paced-number      数字が出る → その数字を 0〜9 で入力
+     paced-position    マスが光る → そのマスを3×3グリッドで入力
+     paced-kana        音が鳴る → その音をかなボタンで入力
+     paced-mixed       数字かマス → 数字パッドかグリッドで入力
+     paced-mixed-kana  数字かマスか音 → 3種類のパッドで入力
+
+   音を鳴らす課題は clips(config) を持つ。app.js がこれを見て
+   ブロックの前に読み込んでおく（出題のたびに読み込むと発音がずれる）。
+
+   並び順は order で名乗る。順番の定義は modalities.js の ORDER 1か所だけ。
 
    課題のIDはリアルタイム判定のモダリティとは別にしてある。
    同じ 'visual-number' でも、リアルタイムは1〜9、こちらは0〜9で記号集合が違う。
@@ -129,6 +137,27 @@
     return { el: wrap, buttons: buttons };
   }
 
+  // かな8個。2行×4列に並べる。
+  function kanaPad(container, symbols, onPick) {
+    const wrap = document.createElement('div');
+    wrap.className = 'paced-pad paced-pad-kana';
+    const buttons = [];
+    // 音の並びは音声ファイルの登録順に合わせる（毎回同じ位置にあるほうが押しやすい）
+    const order = NB.kanaClips.filter(k => symbols.indexOf(k) >= 0);
+    order.forEach(function (k) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'input-cell paced-kana';
+      b.textContent = NB.kanaLabels[k] || k;
+      b.dataset.value = k;
+      NB.bindTap(b, function () { onPick(k); });
+      wrap.appendChild(b);
+      buttons.push(b);
+    });
+    container.appendChild(wrap);
+    return { el: wrap, buttons: buttons };
+  }
+
   /* 位置と数字を左右に並べたパッド。どちらを押したかで「種類」も同時に決まるので、
      混合でも1タップで答えられる。 */
   function dualPad(container, symbols, onPick) {
@@ -154,6 +183,73 @@
     return { el: wrap, buttons: buttons.concat(pos.buttons, num.buttons) };
   }
 
+  /* 位置・数字・かなの3種類。上段に位置と数字、下段にかな。
+     ボタンは26個になるので、下段を横いっぱいに使って1つずつを大きく保つ。 */
+  function triPad(container, symbols, onPick) {
+    const wrap = document.createElement('div');
+    wrap.className = 'paced-pad-tri';
+
+    const top = document.createElement('div');
+    top.className = 'paced-pad-dual';
+    const posGroup = document.createElement('div');
+    posGroup.className = 'paced-group';
+    posGroup.innerHTML = '<div class="paced-group-label">位置</div>';
+    const pos = gridPad(posGroup, symbols.filter(s => s[0] === 'P').map(s => s.slice(1)),
+      cell => onPick('P' + cell));
+    top.appendChild(posGroup);
+
+    const numGroup = document.createElement('div');
+    numGroup.className = 'paced-group';
+    numGroup.innerHTML = '<div class="paced-group-label">数字</div>';
+    const num = digitPad(numGroup, symbols.filter(s => s[0] === 'N').map(s => s.slice(1)),
+      d => onPick('N' + d));
+    top.appendChild(numGroup);
+    wrap.appendChild(top);
+
+    const kanaGroup = document.createElement('div');
+    kanaGroup.className = 'paced-group paced-group-wide';
+    kanaGroup.innerHTML = '<div class="paced-group-label">かな</div>';
+    const kana = kanaPad(kanaGroup, symbols.filter(s => s[0] === 'K').map(s => s.slice(1)),
+      k => onPick('K' + k));
+    wrap.appendChild(kanaGroup);
+
+    container.appendChild(wrap);
+    return { el: wrap, buttons: pos.buttons.concat(num.buttons, kana.buttons) };
+  }
+
+  // ---- 音の提示まわり -----------------------------------------------------
+  /* 「もう一度聞く」は いま出ている刺激 だけを鳴らし直す。
+     視覚の課題は答えるまで刺激が画面に出たままなので、これは同じ条件に
+     揃えるためのもので、廃止した「1つ戻る」とは別物。
+     前の刺激には決して戻さないこと。戻すと見直しの時間を与えて課題が変わる。 */
+  function makeReplay(h) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ghost paced-replay';
+    btn.textContent = 'もう一度聞く';
+    NB.bindTap(btn, function () {
+      if (h.symbol) playAndPulse(h, h.symbol, true);
+    });
+    h.replay = btn;
+    return btn;
+  }
+
+  // かなの試行でだけ出す。数字や位置のときに出ていても押せず、紛らわしい。
+  function syncReplay(h) {
+    if (h.replay) h.replay.hidden = !h.symbol;
+  }
+
+  function playAndPulse(h, symbol, isReplay) {
+    h.symbol = symbol;
+    NB.audio.play(symbol);
+    const el = h.speaker || h.el;
+    el.classList.remove('on');
+    // クラスを付け直してアニメーションを再生させる
+    void el.offsetWidth;
+    el.classList.add('on');
+    if (!isReplay) syncReplay(h);
+  }
+
   // ---- 課題の定義 ---------------------------------------------------------
   /* 各課題が持つもの:
        label       画面表示名
@@ -167,6 +263,7 @@
   const TASKS = {
     'calc-arith': {
       label: '計算 (四則演算)',
+      order: 'calc',
       alphabet: function (config) {
         const out = [];
         for (let v = 0; v <= (config.answerMax || 9); v++) out.push(String(v));
@@ -196,6 +293,7 @@
 
     'paced-number': {
       label: '数字 (0〜9)',
+      order: 'number',
       alphabet: function () {
         const out = [];
         for (let v = 0; v <= 9; v++) out.push(String(v));
@@ -217,6 +315,7 @@
 
     'paced-mixed': {
       label: '混合 (数字 + 位置)',
+      order: 'mixed',
       /* 数字は 0〜9、位置は中央を除く8マス。中央は数字の表示に使うので位置には回せない。
          数字の範囲は paced-number と揃えてある（リアルタイムの混合は 1〜9 で別物）。 */
       alphabet: function () {
@@ -241,6 +340,7 @@
 
     'paced-position': {
       label: '位置 (3×3グリッド)',
+      order: 'position',
       // 提示は既存のモダリティをそのまま使う（中央を除くかどうかも同じ設定）
       alphabet: function (config) { return NB.modalities['visual-position'].alphabet(config); },
       prepare: function () { return null; },
@@ -253,6 +353,68 @@
       format: function (s) { return NB.cellNames[Number(s)]; },
       askLabel: function (n) { return n + ' 個前に光ったマスは？'; },
       memoLabel: 'このマスを覚えて「次へ」'
+    },
+
+    'paced-kana': {
+      label: 'かな (音声)',
+      order: 'kana',
+      /* 音は audio-letter と同じ8個をそのまま使う。
+         リアルタイムと違って記号集合が同じなので迷うところはないが、
+         課題IDは分けてある（記録を後から読むときに取り違えないため）。 */
+      alphabet: function () { return NB.kanaClips.slice(); },
+      clips: function () { return NB.kanaClips.slice(); },
+      prepare: function () { return null; },
+      mount: function (container) {
+        const wrap = document.createElement('div');
+        wrap.className = 'paced-audio';
+        const speaker = NB.makeSpeaker('stim-audio');
+        wrap.appendChild(speaker);
+        const h = { el: wrap, speaker: speaker, symbol: null };
+        wrap.appendChild(makeReplay(h));
+        container.appendChild(wrap);
+        return h;
+      },
+      show: function (h, symbol) { playAndPulse(h, symbol); },
+      pad: kanaPad,
+      format: function (s) { return NB.kanaLabels[s] || s; },
+      askLabel: function (n) { return n + ' 個前に聞こえた音は？'; },
+      memoLabel: 'この音を覚えて「次へ」'
+    },
+
+    'paced-mixed-kana': {
+      label: '混合 (数字 + 位置 + かな)',
+      order: 'mixed-kana',
+      /* 数字は 0〜9、位置は中央を除く8マス、かなは8音。
+         数字と位置はどちらも視覚なので一本の列として覚えられるが、
+         ここに音が入ると音韻ループと視空間スケッチパッドをまたぐ列になる。
+         同じ N でも 混合(数字+位置) より重い。 */
+      alphabet: function () {
+        const nums = [];
+        for (let v = 0; v <= 9; v++) nums.push('N' + v);
+        const pos = ['0', '1', '2', '3', '5', '6', '7', '8'].map(c => 'P' + c);
+        return nums.concat(pos, NB.kanaClips.map(k => 'K' + k));
+      },
+      clips: function () { return NB.kanaClips.slice(); },
+      prepare: function () { return null; },
+      mount: function (container) {
+        const mod = NB.modalities['mixed-number-position-kana'];
+        const h = mod.mount(container);
+        h.symbol = null;
+        // かなの試行だけ聞き直せるようにする。数字と位置は出たままなので要らない。
+        h.el.appendChild(makeReplay(h));
+        return h;
+      },
+      show: function (h, symbol) {
+        const mod = NB.modalities['mixed-number-position-kana'];
+        mod.hide(h);
+        h.symbol = symbol[0] === 'K' ? symbol.slice(1) : null;
+        mod.show(h, symbol);
+        syncReplay(h);
+      },
+      pad: triPad,
+      format: function (s) { return NB.modalities['mixed-number-position-kana'].format(s); },
+      askLabel: function (n) { return n + ' 個前に出たものは？'; },
+      memoLabel: 'これを覚えて「次へ」'
     }
   };
 
@@ -464,7 +626,11 @@
   NB.paced = {
     TASKS: TASKS,
     OPS: OPS,
-    taskIds: function () { return Object.keys(TASKS); },
+    // 並び順は modalities.js の ORDER が決める。TASKS に書いた順ではない。
+    taskIds: function () {
+      const items = Object.keys(TASKS).map(id => ({ id: id, order: TASKS[id].order }));
+      return NB.sortByOrder(items).map(o => o.id);
+    },
     label: function (id) { return TASKS[id] ? TASKS[id].label : id; },
     candidates: candidates,
     makeProblem: makeProblem,

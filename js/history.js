@@ -12,6 +12,9 @@
     'paced-position':  '#6fd6a8',
     'paced-mixed':     '#e6b95c',
     'audio-letter':    '#c9a0ff',
+    'paced-kana':      '#c9a0ff',
+    'mixed-number-position-kana': '#f08c5a',
+    'paced-mixed-kana':           '#f08c5a',
     'dual':            '#d98ce0'
   };
   function colorFor(m) { return COLORS[m] || '#9aa4b2'; }
@@ -23,6 +26,16 @@
     // 自分のペース方式の課題は paced.js 側に登録がある
     if (NB.paced && NB.paced.TASKS[id]) return NB.paced.label(id);
     return id;
+  }
+
+  /* 絞り込みの選択肢用の名前。
+     リアルタイムのモダリティと自分のペースの課題は別物なのに、
+     表示名が同じものがある（位置・かな・混合・混合3）。
+     そのまま並べるとどちらを選んでいるのか分からなくなるので、
+     課題のほうにだけ断りを付ける。 */
+  function filterLabel(id) {
+    const base = modalityLabel(id);
+    return (NB.paced && NB.paced.TASKS[id]) ? base + ' — 自分のペース' : base;
   }
 
   function localDate(iso) {
@@ -361,6 +374,6 @@
       '</tr></thead><tbody>' + rows + '</tbody></table></div>');
   }
 
-  NB.history = { render, byDate, modalityLabel, colorFor, localDate, localTime,
+  NB.history = { render, byDate, modalityLabel, filterLabel, colorFor, localDate, localTime,
                  pct, num, esc, mode, hasLure, sectionKey, sectionLabel, MODE_LABEL };
 })(window.NB = window.NB || {});

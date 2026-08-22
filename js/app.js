@@ -119,20 +119,32 @@
   function isPaced() { return settings.responseMode === 'paced'; }
   function isCalcTask() { return isPaced() && settings.pacedTask === 'calc-arith'; }
 
-  // いま選んでいる提示方法が音を使うか（自分のペース方式に音の課題はまだ無い）
-  function isAudioModality() {
+  /* 音を使うかどうかは kind ではなく clips() の有無で見る。
+     混合(数字+位置+かな) は kind が 'mixed' だが音を鳴らすので、
+     kind で判定すると先読みから漏れて本番で無音になる。 */
+  function usesAudio() {
+    if (isPaced()) {
+      const t = NB.paced.TASKS[settings.pacedTask];
+      return !!(t && t.clips);
+    }
     const m = NB.modalities[settings.modalityId];
-    return !isPaced() && !!m && m.kind === 'audio';
+    return !!(m && m.clips);
   }
 
-  // config が鳴らす音の記号を全部集める。チャンネルが増えても効く。
+  // config が鳴らす音を全部集める。方式が違ってもここ1か所で済ませる。
   function audioSymbols(config) {
-    if (!config.channels) return [];
     const out = [];
-    config.channels.forEach(function (ch) {
+    const add = function (list) {
+      (list || []).forEach(function (s) { if (out.indexOf(s) < 0) out.push(s); });
+    };
+    if (config.responseMode === 'paced') {
+      const t = NB.paced.TASKS[config.task];
+      if (t && t.clips) add(t.clips(config));
+      return out;
+    }
+    (config.channels || []).forEach(function (ch) {
       const m = NB.modalities[ch.modalityId];
-      if (!m || m.kind !== 'audio') return;
-      m.alphabet(config).forEach(function (s) { if (out.indexOf(s) < 0) out.push(s); });
+      if (m && m.clips) add(m.clips(config));
     });
     return out;
   }
@@ -193,10 +205,18 @@
       } else if (settings.pacedTask === 'paced-mixed') {
         note = '試行ごとに数字か位置かが切り替わります。種類と値の両方を覚える必要があるので、' +
           '同じ N でも単独より重くなります。時間制限はありません。';
+      } else if (settings.pacedTask === 'paced-mixed-kana') {
+        note = '試行ごとに数字・位置・かなが切り替わります。数字と位置は目、かなは耳なので、' +
+          '一本の覚え方では回せません。混合(数字+位置)より重いので N は低めから。' +
+          '答えるボタンは26個です。時間制限はありません。';
+      } else if (settings.pacedTask === 'paced-kana') {
+        note = '音が1つずつ鳴ります。それを覚えて、N個前の音を答えます。' +
+          '聞き逃したときは「もう一度聞く」で今の音だけ鳴らし直せます。時間制限はありません。';
       } else {
         note = '出たものを覚えて、N個前を答えます。時間制限はないので自分のペースで進められます。' +
           '難しくするなら N を上げてください。';
       }
+      if (usesAudio()) note += ' 音が鳴るので、先に音量を確かめてください。';
       if (settings.lure) note = 'ひっかけ ON。' + note;
       $('#setup-note').textContent = note;
       $('#setup-note').hidden = false;
@@ -210,8 +230,19 @@
     $('#setup-summary').textContent =
       trials + '試行 / ターゲット約' + targets + '個 / 所要 約' + time;
 
-    if (isAudioModality()) {
-      let note = '音が1つずつ鳴ります。画面には何も出ないので、音量を確かめてください。';
+    if (usesAudio()) {
+      let note;
+      if (settings.modalityId === 'mixed-number-position-kana') {
+        note = '試行ごとに数字・位置・かなが切り替わります。数字と位置は目、かなは耳なので、' +
+          '一本の覚え方では回せません。混合(数字+位置)より重いので N は低めから。' +
+          /* 反応時間は刺激が出た瞬間から測る。かなは最後まで聞かないと
+             判別できないぶん、その試行だけ数百ms長く出る。混ぜた平均は
+             2つの時計の混合になるので、他の方式の数値とは比べない。 */
+          ' 平均反応時間は、かなの試行が長く出るぶん他の方式とは比べられません。';
+      } else {
+        note = '音が1つずつ鳴ります。画面には何も出ません。';
+      }
+      note += ' 音量を確かめてください。';
       // 音の長さは録音で決まっていて「刺激提示」では変わらない。
       // 1試行が短すぎると前の音が途中で切れるので、そのときだけ断る。
       if (settings.stimulusMs + settings.isiMs < 1200) {
@@ -222,28 +253,56 @@
       $('#setup-note').hidden = false;
       return;
     }
+    if (settings.modalityId === 'mixed-number-position') {
+      $('#setup-note').textContent =
+        (settings.lure ? 'ひっかけ ON。' : '') +
+        '試行ごとに数字か位置かが切り替わります。種類と値の両方を覚える必要があります。';
+      $('#setup-note').hidden = false;
+      return;
+    }
     $('#setup-note').hidden = true;
   }
 
   function updateSetupHelp() {
     if (isPaced()) {
       const t = settings.pacedTask;
-      const how = t === 'paced-position' ? '3×3グリッドの該当マスをタップ'
-        : (t === 'paced-mixed' ? '左のグリッドか右の数字のどちらかをタップ'
-          : '画面下の 0〜9 ボタンをタップ');
-      const what = t === 'calc-arith' ? '式の答え'
-        : (t === 'paced-position' ? '光ったマス'
-          : (t === 'paced-mixed' ? '数字か光ったマス' : '数字'));
+      const HOW = {
+        'calc-arith': '画面下の 0〜9 ボタンをタップ',
+        'paced-number': '画面下の 0〜9 ボタンをタップ',
+        'paced-position': '3×3グリッドの該当マスをタップ',
+        'paced-kana': '画面下のかなボタンをタップ',
+        'paced-mixed': '左のグリッドか右の数字のどちらかをタップ',
+        'paced-mixed-kana': '位置・数字・かなのどれかをタップ'
+      };
+      const WHAT = {
+        'calc-arith': '式の答え',
+        'paced-number': '数字',
+        'paced-position': '光ったマス',
+        'paced-kana': '音',
+        'paced-mixed': '数字か光ったマス',
+        'paced-mixed-kana': '数字・光ったマス・音のどれか'
+      };
+      const how = HOW[t] || '画面下のボタンをタップ';
+      const what = WHAT[t] || '刺激';
+      // 音は「出る」ではなく「鳴る」。かなの課題だけ言い方を変える。
+      const verb = t === 'paced-kana' ? '鳴ります' : '出ます';
       $('#setup-help').innerHTML =
-        NB.history.esc(what) + 'が1つずつ出ます。それを覚えておき、' + settings.n +
+        NB.history.esc(what) + 'が1つずつ' + verb + '。それを覚えておき、' + settings.n +
         ' 個前に出たものを ' + NB.history.esc(how) + 'して答えます。<br>' +
         '入力すると次に進みます。キーボードは使いません。';
       return;
     }
-    if (isAudioModality()) {
+    if (settings.modalityId === 'audio-letter') {
       $('#setup-help').innerHTML =
         'かなが1つずつ読み上げられます（あ か し つ ね ほ む ろ）。<br>' +
         settings.n + ' 個前と同じ音だと思ったら、画面下のボタンをタップ。<br>' +
+        '一致しないときは押さない。';
+      return;
+    }
+    if (settings.modalityId === 'mixed-number-position-kana') {
+      $('#setup-help').innerHTML =
+        '数字・光るマス・かなの音が入れ替わりで出ます。<br>' +
+        settings.n + ' 個前と種類も値も同じだと思ったら、画面下のボタンをタップ。<br>' +
         '一致しないときは押さない。';
       return;
     }
@@ -504,7 +563,8 @@
     const sel = $('#history-filter');
     const present = Array.from(new Set(records.map(r => r.modality)));
     sel.innerHTML = '<option value="all">すべて</option>' +
-      present.map(m => '<option value="' + m + '">' + NB.history.modalityLabel(m) + '</option>').join('');
+      present.map(m => '<option value="' + NB.history.esc(m) + '">' +
+        NB.history.esc(NB.history.filterLabel(m)) + '</option>').join('');
     sel.value = present.indexOf(historyFilter) >= 0 ? historyFilter : 'all';
     historyFilter = sel.value;
 

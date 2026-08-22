@@ -292,6 +292,127 @@ console.log('--- ひっかけ: 音声モダリティ ---');
   ok(overlap === 0, 'ON: ターゲットとは重ならない');
 }
 
+console.log('--- 課題の並び順（1か所で決まっているか）---');
+{
+  const want = ['calc', 'number', 'position', 'kana', 'mixed', 'mixed-kana'];
+  ok(window.NB.ORDER.join(',') === want.join(','), '並び順の定義: ' + want.join(' → '));
+
+  // リアルタイムのモダリティ
+  const mods = window.NB.modalityList().map(m => m.id);
+  ok(mods.join(',') === ['visual-number', 'visual-position', 'audio-letter',
+    'mixed-number-position', 'mixed-number-position-kana'].join(','),
+    'モダリティの並び: ' + mods.join(' → '));
+
+  // 自分のペースの課題
+  const tasks = paced.taskIds();
+  ok(tasks.join(',') === ['calc-arith', 'paced-number', 'paced-position',
+    'paced-kana', 'paced-mixed', 'paced-mixed-kana'].join(','),
+    '課題の並び: ' + tasks.join(' → '));
+
+  // 両方が同じ ORDER に従っていること。定義した順に引きずられていないか。
+  const modOrder = window.NB.modalityList().map(m => m.order);
+  const taskOrder = tasks.map(id => paced.TASKS[id].order);
+  const rank = list => list.map(o => window.NB.ORDER.indexOf(o));
+  const ascending = a => a.every((v, i) => i === 0 || a[i - 1] <= v);
+  ok(ascending(rank(modOrder)), 'モダリティは ORDER の順に並ぶ');
+  ok(ascending(rank(taskOrder)), '課題は ORDER の順に並ぶ');
+  ok(taskOrder.every(o => window.NB.ORDER.indexOf(o) >= 0), '全課題が order を名乗っている');
+  ok(modOrder.every(o => window.NB.ORDER.indexOf(o) >= 0), '全モダリティが order を名乗っている');
+}
+
+console.log('--- 混合3系統 (数字 + 位置 + かな) ---');
+{
+  const rt = window.NB.modalities['mixed-number-position-kana'];
+  ok(!!rt, 'リアルタイムに登録されている');
+  const rtAlpha = rt.alphabet({});
+  ok(rtAlpha.length === 25, 'リアルタイムの記号は25種（数字9 + 位置8 + かな8）');
+  ok(rtAlpha.filter(s => s === 'P4').length === 0, '中央マスは出ない（数字の表示に使うため）');
+  ok(rtAlpha.filter(s => s[0] === 'K').length === 8, 'かなは8種');
+  ok(rt.clips().length === 8, 'clips() が8個の音を返す（先読みに使う）');
+  ok(rt.format('N5') === '数字5' && rt.format('K shi'.replace(' ', '')) === '音し' &&
+    rt.format('P0') === '左上', '表記: 数字5 / 音し / 左上');
+
+  const pc = paced.TASKS['paced-mixed-kana'];
+  ok(!!pc, '自分のペースに登録されている');
+  const pcAlpha = pc.alphabet({});
+  ok(pcAlpha.length === 26, '自分のペースの記号は26種（数字10 + 位置8 + かな8）');
+  ok(pcAlpha.filter(s => s[0] === 'N').length === 10, '数字は0から（paced-number と同じ範囲）');
+  ok(pcAlpha.indexOf('P4') < 0, '中央マスは出ない');
+  ok(pc.clips().length === 8, 'clips() が8個の音を返す');
+
+  // 課題IDはモダリティIDと別にする（記録を後から読むときに取り違えない）
+  ok(paced.taskIds().every(id => Object.keys(window.NB.modalities).indexOf(id) < 0),
+    '課題IDはモダリティIDと重ならない');
+
+  // 列の整合性
+  let bad = 0;
+  const kinds = { N: 0, P: 0, K: 0 };
+  for (let seed = 0; seed < 100; seed++) {
+    const seq = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: rtAlpha, seed: seed });
+    seq.symbols.forEach(s => { if (rtAlpha.indexOf(s) < 0) bad++; kinds[s[0]]++; });
+    for (let i = 0; i < 22; i++) {
+      const actual = i >= 2 && seq.symbols[i] === seq.symbols[i - 2];
+      if (actual !== seq.isTarget[i]) bad++;
+    }
+  }
+  ok(bad === 0, '3種類の記号が混ざっても列とターゲット判定が整合する（100シード）');
+  ok(kinds.N > 0 && kinds.P > 0 && kinds.K > 0,
+    '3種類とも混ざる（数字 ' + kinds.N + ' / 位置 ' + kinds.P + ' / かな ' + kinds.K + '）');
+}
+
+console.log('--- 自分のペース: かな ---');
+{
+  const t = paced.TASKS['paced-kana'];
+  ok(!!t, 'paced-kana が登録されている');
+  const alpha = t.alphabet({});
+  ok(alpha.length === 8, '記号は8種: ' + alpha.join(' '));
+  ok(alpha.join(',') === window.NB.modalities['audio-letter'].alphabet({}).join(','),
+    'audio-letter と同じ音を使う（音声ファイルを共有する）');
+  ok(t.format('shi') === 'し', '結果画面はかなで出る');
+
+  // 毎試行が出題なのでターゲットは置かない
+  let bad = 0;
+  for (let seed = 0; seed < 100; seed++) {
+    const seq = core.generateSequence({ n: 2, trials: 17, targetRate: 0,
+      alphabet: alpha, seed: seed });
+    if (seq.symbols.length !== 17) bad++;
+    if (seq.targets !== 0) bad++;
+    seq.symbols.forEach(s => { if (alpha.indexOf(s) < 0) bad++; });
+  }
+  ok(bad === 0, '出題数どおりの列ができ、ターゲットを作らない（100シード）');
+}
+
+console.log('--- ひっかけ: 新方式でも効くか ---');
+{
+  const cases = [
+    ['混合3(リアルタイム)', window.NB.modalities['mixed-number-position-kana'].alphabet({}), 0.28],
+    ['かな(自分のペース)', paced.TASKS['paced-kana'].alphabet({}), 0],
+    ['混合3(自分のペース)', paced.TASKS['paced-mixed-kana'].alphabet({}), 0]
+  ];
+  cases.forEach(function (c) {
+    const name = c[0], alpha = c[1], rate = c[2];
+    let off = 0, on = 0, misplaced = 0, overlap = 0;
+    for (let seed = 0; seed < 100; seed++) {
+      const a = core.generateSequence({ n: 2, trials: 22, targetRate: rate,
+        alphabet: alpha, seed: seed, lure: false });
+      off += a.lures;
+      const b = core.generateSequence({ n: 2, trials: 22, targetRate: rate,
+        alphabet: alpha, seed: seed, lure: true });
+      on += b.lures;
+      b.lurePositions.forEach(function (i) {
+        const back1 = i >= 1 && b.symbols[i] === b.symbols[i - 1];
+        const back3 = i >= 3 && b.symbols[i] === b.symbols[i - 3];
+        if (!back1 && !back3) misplaced++;
+        if (b.isTarget[i]) overlap++;
+      });
+    }
+    ok(off === 0, name + ' OFF: ひっかけ0件');
+    ok(on > 0, name + ' ON: 置かれる（1ブロック ' + (on / 100).toFixed(1) + '件）');
+    ok(misplaced === 0, name + ' ON: 位置は N±1 で一致する');
+    ok(overlap === 0, name + ' ON: ターゲットとは重ならない');
+  });
+}
+
 console.log('--- Nバック構造を作らない列 (n = 0) ---');
 {
   // 自分のペース方式は毎試行が出題なので、ターゲットの概念がない。
