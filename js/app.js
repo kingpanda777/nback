@@ -26,9 +26,10 @@
 
   // ---- 設定画面 -----------------------------------------------------------
   function buildSetup() {
-    // モダリティの選択肢はレジストリから作る。第2段階で音を登録すれば自動で並ぶ。
+    // モダリティの選択肢はレジストリから作る。増やすときは modalities.js に足すだけ。
+    // 音が出せない環境では音声を出さない（選んでも無音のブロックになるだけなので）。
     $('#modality').innerHTML = NB.modalityList()
-      .filter(m => m.kind === 'visual')     // 第1段階は視覚のみ
+      .filter(m => m.kind !== 'audio' || NB.audio.supported())
       .map(m => '<option value="' + m.id + '">' + m.label + '</option>')
       .join('');
 
@@ -118,6 +119,24 @@
   function isPaced() { return settings.responseMode === 'paced'; }
   function isCalcTask() { return isPaced() && settings.pacedTask === 'calc-arith'; }
 
+  // いま選んでいる提示方法が音を使うか（自分のペース方式に音の課題はまだ無い）
+  function isAudioModality() {
+    const m = NB.modalities[settings.modalityId];
+    return !isPaced() && !!m && m.kind === 'audio';
+  }
+
+  // config が鳴らす音の記号を全部集める。チャンネルが増えても効く。
+  function audioSymbols(config) {
+    if (!config.channels) return [];
+    const out = [];
+    config.channels.forEach(function (ch) {
+      const m = NB.modalities[ch.modalityId];
+      if (!m || m.kind !== 'audio') return;
+      m.alphabet(config).forEach(function (s) { if (out.indexOf(s) < 0) out.push(s); });
+    });
+    return out;
+  }
+
   // 自分のペース方式は 採点する問題数 を決め、出題は N + その数になる。
   // 最初の N 問は答える相手がいないので「覚えるだけ」。
   function pacedAnswers() {
@@ -190,6 +209,19 @@
     const targets = Math.max(1, Math.round(settings.targetRate * settings.trialsExtra));
     $('#setup-summary').textContent =
       trials + '試行 / ターゲット約' + targets + '個 / 所要 約' + time;
+
+    if (isAudioModality()) {
+      let note = '音が1つずつ鳴ります。画面には何も出ないので、音量を確かめてください。';
+      // 音の長さは録音で決まっていて「刺激提示」では変わらない。
+      // 1試行が短すぎると前の音が途中で切れるので、そのときだけ断る。
+      if (settings.stimulusMs + settings.isiMs < 1200) {
+        note += ' 1試行が短いと前の音が途中で切れます。合計1200ms以上を勧めます。';
+      }
+      if (settings.lure) note = 'ひっかけ ON。' + note;
+      $('#setup-note').textContent = note;
+      $('#setup-note').hidden = false;
+      return;
+    }
     $('#setup-note').hidden = true;
   }
 
@@ -206,6 +238,13 @@
         NB.history.esc(what) + 'が1つずつ出ます。それを覚えておき、' + settings.n +
         ' 個前に出たものを ' + NB.history.esc(how) + 'して答えます。<br>' +
         '入力すると次に進みます。キーボードは使いません。';
+      return;
+    }
+    if (isAudioModality()) {
+      $('#setup-help').innerHTML =
+        'かなが1つずつ読み上げられます（あ か し つ ね ほ む ろ）。<br>' +
+        settings.n + ' 個前と同じ音だと思ったら、画面下のボタンをタップ。<br>' +
+        '一致しないときは押さない。';
       return;
     }
     $('#setup-help').innerHTML =
@@ -244,9 +283,49 @@
     };
   }
 
+  /* 音を使うブロックは、鳴らせる状態になるまで始めない。
+     出題の途中で読み込みが走ると鳴るタイミングがずれ、反応時間が測れなくなる。
+     unlock() はタップの中から同期的に呼ぶこと（自動再生の制限）。
+     await の先や setTimeout の中では「ユーザー操作」と見なされず解錠に失敗する。 */
+  function prepareAudio(config) {
+    const names = audioSymbols(config);
+    if (!names.length) return Promise.resolve(true);
+    NB.audio.unlock();
+    if (NB.audio.ready(names)) return Promise.resolve(true);
+    return NB.audio.preload(names);
+  }
+
+  /* カウントダウンと音声の読み込みを並行させ、両方が済んでから始める。
+     8個で70KB弱なので普通は読み込みが先に終わり、待つのはカウントダウンだけになる。 */
+  function startWhenReady(audioReady) {
+    let counted = false;
+    let ok = null;
+
+    function go() {
+      if (!counted || ok === null) return;
+      if (!controller) return;                 // カウントダウン中に中止された
+      setPhase(null);
+      if (ok === false) {
+        controller.abort();
+        alert('音声を読み込めませんでした。通信を確かめて、もう一度お試しください。');
+        return;
+      }
+      controller.start();
+    }
+
+    audioReady.then(function (v) { ok = v; go(); });
+    countdown(3, function () {
+      counted = true;
+      if (ok === null) setPhase('音声を読み込み中…');
+      go();
+    });
+  }
+
   function startBlock(seed) {
     const config = buildConfig(seed);
     pendingSeed = config.seed;
+    // 「開始」のタップの中。ここで解錠しておかないと本番で音が出ない。
+    const audioReady = prepareAudio(config);
 
     $('#run-n').textContent = config.n > 0 ? 'N' + config.n : config.trials + '問';
     $('#run-modality').textContent = config.responseMode === 'paced'
@@ -274,7 +353,7 @@
           onAbort: function () { controller = null; show('setup'); }
         }
       );
-      countdown(3, function () { if (controller) controller.start(); });
+      startWhenReady(audioReady);
       return;
     }
 
@@ -296,7 +375,7 @@
       }
     );
 
-    countdown(3, function () { if (controller) controller.start(); });
+    startWhenReady(audioReady);
   }
 
   function setPhase(text) {
@@ -552,6 +631,13 @@
   function init() {
     buildSetup();
     buildHistoryUi();
+
+    /* 音声は取得だけ先に済ませておく。取得に操作は要らない（要るのは再生）。
+       ここで持っておけば「開始」を押してからはデコードだけで済む。
+       サービスワーカーがキャッシュ済みなら通信も起きない。 */
+    if (NB.audio.supported() && NB.modalities['audio-letter']) {
+      NB.audio.prefetch(NB.modalities['audio-letter'].alphabet({}));
+    }
 
     $('#abort').addEventListener('click', function () {
       if (controller) controller.abort(); else show('setup');

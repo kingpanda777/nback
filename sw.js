@@ -4,7 +4,7 @@
    ファイルを更新したら VERSION を1つ上げること。
    ブラウザは sw.js の中身が変わったときだけ更新処理を始めるので、
    ここが同じままだと古いキャッシュが配られ続ける。 */
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = 'nback-' + VERSION;
 
 // sw.js からの相対パス。GitHub Pages のサブディレクトリ配信でもそのまま効く。
@@ -13,6 +13,7 @@ const ASSETS = [
   'index.html',
   'css/style.css',
   'js/core.js',
+  'js/audio.js',
   'js/modalities.js',
   'js/runner.js',
   'js/paced.js',

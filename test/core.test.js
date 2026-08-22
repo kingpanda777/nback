@@ -228,6 +228,70 @@ console.log('--- 混合モダリティの記号列 ---');
   ok(kinds.N > 0 && kinds.P > 0, '数字と位置が両方混ざる（数字 ' + kinds.N + ' / 位置 ' + kinds.P + '）');
 }
 
+console.log('--- 音声モダリティ (audio-letter) ---');
+{
+  const audio = window.NB.modalities['audio-letter'];
+  ok(!!audio, 'audio-letter が登録されている');
+  ok(audio.kind === 'audio', "kind は 'audio'（設定画面の絞り込みがこれを見る）");
+
+  const alphabet = audio.alphabet({});
+  ok(alphabet.length === 8, '記号は8種: ' + alphabet.join(' '));
+  ok(new Set(alphabet).size === 8, '重複が無い');
+
+  // 記号名がそのままファイル名になる。取り違えると本番で無音になる。
+  const dir = p.join(__dirname, '..', 'audio');
+  const missing = alphabet.filter(s => !fs.existsSync(p.join(dir, s + '.mp3')));
+  ok(missing.length === 0, '記号ぶんの mp3 が audio/ にある' +
+    (missing.length ? '（無い: ' + missing.join(',') + '）' : ''));
+
+  // sw.js に載っていないとオフラインで鳴らない
+  const sw = fs.readFileSync(p.join(__dirname, '..', 'sw.js'), 'utf8');
+  const notCached = alphabet.filter(s => sw.indexOf("'audio/" + s + ".mp3'") < 0);
+  ok(notCached.length === 0, 'sw.js の ASSETS に8個とも入っている' +
+    (notCached.length ? '（漏れ: ' + notCached.join(',') + '）' : ''));
+  ok(sw.indexOf("'js/audio.js'") >= 0, 'sw.js の ASSETS に js/audio.js が入っている');
+
+  ok(audio.format('shi') === 'し' && audio.format('tsu') === 'つ',
+    '結果画面はかなで出る（shi→し, tsu→つ）');
+
+  // core.js は記号が何かを知らないので、音でも列の作りは同じはず
+  let bad = 0;
+  for (let seed = 0; seed < 100; seed++) {
+    const seq = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: alphabet, seed: seed });
+    if (seq.symbols.length !== 22) bad++;
+    seq.symbols.forEach(s => { if (alphabet.indexOf(s) < 0) bad++; });
+    for (let i = 0; i < 22; i++) {
+      const actual = i >= 2 && seq.symbols[i] === seq.symbols[i - 2];
+      if (actual !== seq.isTarget[i]) bad++;
+    }
+  }
+  ok(bad === 0, '8種の記号でも列とターゲット判定が整合する（100シード）');
+}
+
+console.log('--- ひっかけ: 音声モダリティ ---');
+{
+  const alphabet = window.NB.modalities['audio-letter'].alphabet({});
+  let off = 0, on = 0, misplaced = 0, overlap = 0;
+  for (let seed = 0; seed < 100; seed++) {
+    const a = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: alphabet, seed: seed, lure: false });
+    off += a.lures;
+
+    const b = core.generateSequence({ n: 2, trials: 22, targetRate: 0.28, alphabet: alphabet, seed: seed, lure: true });
+    on += b.lures;
+    b.lurePositions.forEach(function (i) {
+      // ひっかけは N±1 の位置に同じ音を置いたもの。ターゲットとは重ならない。
+      const back1 = i >= 1 && b.symbols[i] === b.symbols[i - 1];
+      const back3 = i >= 3 && b.symbols[i] === b.symbols[i - 3];
+      if (!back1 && !back3) misplaced++;
+      if (b.isTarget[i]) overlap++;
+    });
+  }
+  ok(off === 0, 'OFF: 100ブロックでひっかけ0件（偶然の一致も作らない）');
+  ok(on > 0, 'ON: ひっかけが置かれる（1ブロックあたり ' + (on / 100).toFixed(1) + '件）');
+  ok(misplaced === 0, 'ON: 置いた位置は N±1 で一致する');
+  ok(overlap === 0, 'ON: ターゲットとは重ならない');
+}
+
 console.log('--- Nバック構造を作らない列 (n = 0) ---');
 {
   // 自分のペース方式は毎試行が出題なので、ターゲットの概念がない。

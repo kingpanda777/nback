@@ -163,13 +163,53 @@
     unmount: function (h) { h.el.remove(); },
   };
 
-  // ---- 第2段階の追加位置 ---------------------------------------------------
-  // audio-letter は同じ形で M['audio-letter'] = { kind:'audio',
-  //   alphabet: () => ['C','H','K','L','Q','R','S','T'],
-  //   mount: () => ({}), show: (h,s) => playClip(s), hide: () => {} } として登録する。
-  // 自分のペースで答えさせるなら、入力パッドは paced.js の TASKS 側に足す。
-  // 事前録音した音声ファイルを使う方針（Web Speech API はブラウザ差が大きい）。
+  // ---- 読み上げられるかな -------------------------------------------------
+  /* 事前録音した音声ファイル（audio/*.mp3）。記号名がそのままファイル名。
+     英字の子音（C,H,K,L,...）ではなくかなにしたのは、聞き分けやすく
+     口に出して復唱しやすいため。互いに似ていない8音を選んである。
+
+     読み込みと再生は audio.js が持つ。ここは「いつ鳴らすか」だけ。 */
+  const KANA = { a: 'あ', ka: 'か', shi: 'し', tsu: 'つ', ne: 'ね', ho: 'ほ', mu: 'む', ro: 'ろ' };
+  const CLIPS = ['a', 'ka', 'shi', 'tsu', 'ne', 'ho', 'mu', 'ro'];
+
+  M['audio-letter'] = {
+    id: 'audio-letter',
+    label: '音声 (かな)',
+    kind: 'audio',
+    defaultKey: 'SPACE',
+
+    alphabet: function () { return CLIPS.slice(); },
+    format: function (s) { return KANA[s] || s; },
+
+    mount: function (container) {
+      const el = document.createElement('div');
+      el.className = 'stim-audio';
+      // 鳴っていることだけを示す。何が鳴ったかは出さない。
+      el.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path d="M4 9h3.5L12 4.5v15L7.5 15H4z"/>' +
+        '<path class="wave w1" d="M15.5 8.5a5 5 0 0 1 0 7"/>' +
+        '<path class="wave w2" d="M18 6a8.5 8.5 0 0 1 0 12"/>' +
+        '</svg>';
+      container.appendChild(el);
+      return { el: el };
+    },
+
+    /* 見た目は8音とも同じにすること。音ごとに変えると
+       耳を使わずに目だけで解けてしまい、音のNバックにならない。 */
+    show: function (h, symbol) {
+      NB.audio.play(symbol);
+      h.el.classList.add('on');
+    },
+    // 音は途中で切らない。切ると何の音か分からなくなる。
+    // 次の音が鳴るときに audio.js 側が前の音を止める。
+    hide: function (h) { h.el.classList.remove('on'); },
+    unmount: function (h) { NB.audio.stop(); h.el.remove(); },
+  };
+
+  // ---- 第2段階の残り -------------------------------------------------------
   // dual は「チャンネルを2本にする」だけで、runner はすでに複数チャンネルを回せる。
+  // 自分のペースで音を答えさせるなら、入力パッドは paced.js の TASKS 側に足す。
 
   NB.bindTap = bindTap;
   NB.tapFeedback = tapFeedback;

@@ -234,6 +234,38 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 }
 .stim-number.on { opacity: 1; }
 
+/* 音声刺激 — 鳴っていることだけを示す。
+   8音とも同じ見た目にすること。音ごとに変えると目だけで解けてしまう。 */
+.stim-audio svg {
+  width: min(52vw, 34vh, 260px);
+  height: auto;
+  fill: none;
+  stroke: var(--fg);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .22;
+  transition: opacity .12s ease;
+}
+.stim-audio svg path:first-child { fill: var(--fg); stroke: none; }
+.stim-audio .wave { opacity: 0; }
+.stim-audio.on svg { opacity: 1; stroke: var(--accent); }
+.stim-audio.on svg path:first-child { fill: var(--accent); }
+.stim-audio.on .w1 { animation: audio-wave .5s ease-out; }
+.stim-audio.on .w2 { animation: audio-wave .5s ease-out .08s; }
+
+@keyframes audio-wave {
+  0%   { opacity: 0; }
+  30%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 動きを減らす設定なら、点滅だけにする */
+@media (prefers-reduced-motion: reduce) {
+  .stim-audio.on .w1,
+  .stim-audio.on .w2 { animation: none; opacity: 1; }
+}
+
 /* 位置刺激 */
 .stim-grid {
   display: grid;
