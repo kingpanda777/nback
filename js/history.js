@@ -8,6 +8,9 @@
     'visual-position': '#6fd6a8',
     'mixed-number-position': '#e6b95c',
     'calc-arith':      '#f0a3a3',
+    'paced-number':    '#6ea8ff',
+    'paced-position':  '#6fd6a8',
+    'paced-mixed':     '#e6b95c',
     'audio-letter':    '#c9a0ff',
     'dual':            '#d98ce0'
   };

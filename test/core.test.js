@@ -207,8 +207,18 @@ console.log('--- 自分のペース方式: 課題ごとの列 ---');
   const again = paced.makeBlock(Object.assign({}, base, { task: 'paced-position' }));
   ok(pos.symbols.join('') === again.symbols.join(''), '同じシードなら同じ列');
 
+  // 混合は数字0〜9 + 中央を除く8マス
+  const mix = paced.makeBlock(Object.assign({}, base, { task: 'paced-mixed' }));
+  ok(mix.symbols.every(v => /^N[0-9]$|^P[0-35-8]$/.test(v)), '混合: 記号は N0〜N9 と P0〜P8（中央除く）');
+  ok(mix.symbols.every(v => v !== 'P4'), '混合: 中央マスは出ない（数字の表示に使うため）');
+  {
+    const all = paced.TASKS['paced-mixed'].alphabet({});
+    ok(all.length === 18, '混合: 記号は18種（数字10 + 位置8）');
+    ok(all.indexOf('N0') >= 0, '混合: 数字は0から（paced-number と同じ範囲）');
+  }
+
   // 課題IDはリアルタイムのモダリティと衝突させない
-  ok(paced.taskIds().indexOf('visual-number') < 0 && paced.taskIds().indexOf('visual-position') < 0,
+  ok(paced.taskIds().every(id => Object.keys(window.NB.modalities).indexOf(id) < 0),
      '課題IDはモダリティIDと別（' + paced.taskIds().join(', ') + '）');
 }
 

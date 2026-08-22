@@ -354,6 +354,20 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 .paced-pad-grid { aspect-ratio: 1 / 1; }
 .paced-cell { aspect-ratio: 1 / 1; }
 
+/* 混合は位置と数字を左右に並べる。1枚あたりの幅を抑えて画面に収める。 */
+.paced-pad-dual {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+.paced-group { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.paced-group-label { font-size: .75rem; color: var(--dim); }
+.paced-pad-dual .paced-pad { width: min(43vw, 24vh, 200px); gap: 6px; }
+.paced-pad-dual .paced-digit { font-size: 1.1rem; }
+.paced-pad-dual .paced-zero { min-height: 44px; }
+
 .paced-next { width: min(86vw, 320px); min-height: 64px; font-size: 1.05rem; }
 
 .retired-note { margin: 0 0 12px; }

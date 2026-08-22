@@ -163,11 +163,18 @@
       const q = pacedAnswers();
       $('#setup-summary').textContent =
         (settings.n + q) + '問を出題 → ' + q + '問に回答（最初の ' + settings.n + ' 問は覚えるだけ）';
-      $('#setup-note').textContent = isCalcTask()
-        ? '足し算・引き算・掛け算・割り算。割り算は割り切れるものだけ、答えはすべて一桁です。' +
-          '時間制限はないので自分のペースで進められます。難しくするなら N を上げてください。'
-        : '出たものを覚えて、N個前を答えます。時間制限はないので自分のペースで進められます。' +
+      let note;
+      if (isCalcTask()) {
+        note = '足し算・引き算・掛け算・割り算。割り算は割り切れるものだけ、答えはすべて一桁です。' +
+          '時間制限はないので自分のペースで進められます。難しくするなら N を上げてください。';
+      } else if (settings.pacedTask === 'paced-mixed') {
+        note = '試行ごとに数字か位置かが切り替わります。種類と値の両方を覚える必要があるので、' +
+          '同じ N でも単独より重くなります。時間制限はありません。';
+      } else {
+        note = '出たものを覚えて、N個前を答えます。時間制限はないので自分のペースで進められます。' +
           '難しくするなら N を上げてください。';
+      }
+      $('#setup-note').textContent = note;
       $('#setup-note').hidden = false;
       return;
     }
@@ -183,11 +190,13 @@
 
   function updateSetupHelp() {
     if (isPaced()) {
-      const how = settings.pacedTask === 'paced-position'
-        ? '3×3グリッドの該当マスをタップ'
-        : '画面下の 0〜9 ボタンをタップ';
-      const what = settings.pacedTask === 'calc-arith' ? '式の答え'
-        : (settings.pacedTask === 'paced-position' ? '光ったマス' : '数字');
+      const t = settings.pacedTask;
+      const how = t === 'paced-position' ? '3×3グリッドの該当マスをタップ'
+        : (t === 'paced-mixed' ? '左のグリッドか右の数字のどちらかをタップ'
+          : '画面下の 0〜9 ボタンをタップ');
+      const what = t === 'calc-arith' ? '式の答え'
+        : (t === 'paced-position' ? '光ったマス'
+          : (t === 'paced-mixed' ? '数字か光ったマス' : '数字'));
       $('#setup-help').innerHTML =
         NB.history.esc(what) + 'が1つずつ出ます。それを覚えておき、' + settings.n +
         ' 個前に出たものを ' + NB.history.esc(how) + 'して答えます。<br>' +

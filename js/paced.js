@@ -129,6 +129,31 @@
     return { el: wrap, buttons: buttons };
   }
 
+  /* 位置と数字を左右に並べたパッド。どちらを押したかで「種類」も同時に決まるので、
+     混合でも1タップで答えられる。 */
+  function dualPad(container, symbols, onPick) {
+    const wrap = document.createElement('div');
+    wrap.className = 'paced-pad-dual';
+    const buttons = [];
+
+    const posGroup = document.createElement('div');
+    posGroup.className = 'paced-group';
+    posGroup.innerHTML = '<div class="paced-group-label">位置</div>';
+    const pos = gridPad(posGroup, symbols.filter(s => s[0] === 'P').map(s => s.slice(1)),
+      cell => onPick('P' + cell));
+    wrap.appendChild(posGroup);
+
+    const numGroup = document.createElement('div');
+    numGroup.className = 'paced-group';
+    numGroup.innerHTML = '<div class="paced-group-label">数字</div>';
+    const num = digitPad(numGroup, symbols.filter(s => s[0] === 'N').map(s => s.slice(1)),
+      d => onPick('N' + d));
+    wrap.appendChild(numGroup);
+
+    container.appendChild(wrap);
+    return { el: wrap, buttons: buttons.concat(pos.buttons, num.buttons) };
+  }
+
   // ---- 課題の定義 ---------------------------------------------------------
   /* 各課題が持つもの:
        label       画面表示名
@@ -188,6 +213,30 @@
       format: function (s) { return s; },
       askLabel: function (n) { return n + ' 個前の数字は？'; },
       memoLabel: 'この数字を覚えて「次へ」'
+    },
+
+    'paced-mixed': {
+      label: '混合 (数字 + 位置)',
+      /* 数字は 0〜9、位置は中央を除く8マス。中央は数字の表示に使うので位置には回せない。
+         数字の範囲は paced-number と揃えてある（リアルタイムの混合は 1〜9 で別物）。 */
+      alphabet: function () {
+        const nums = [];
+        for (let v = 0; v <= 9; v++) nums.push('N' + v);
+        return nums.concat(['0', '1', '2', '3', '5', '6', '7', '8'].map(c => 'P' + c));
+      },
+      prepare: function () { return null; },
+      // 提示は既存の混合モダリティをそのまま使う
+      mount: function (container) { return NB.modalities['mixed-number-position'].mount(container); },
+      show: function (h, symbol) {
+        NB.modalities['mixed-number-position'].hide(h);
+        NB.modalities['mixed-number-position'].show(h, symbol);
+      },
+      pad: dualPad,
+      format: function (s) {
+        return s[0] === 'N' ? '数字' + s.slice(1) : NB.cellNames[Number(s.slice(1))];
+      },
+      askLabel: function (n) { return n + ' 個前に出たものは？'; },
+      memoLabel: 'これを覚えて「次へ」'
     },
 
     'paced-position': {
