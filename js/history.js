@@ -54,9 +54,7 @@
         faRate: avg(rs.map(r => r.faRate)),
         accuracy: avg(rs.map(r => r.accuracy)),
         dPrime: avg(rs.map(r => r.dPrime)),
-        maxRecallCount: Math.max.apply(null, [0].concat(
-          rs.filter(r => mode(r) === 'recall').map(r => r.trials))),
-        // 廃止した方式の記録が壊れていても、集計で落ちないようにしておく
+        // 値が欠けた記録が混じっていても集計で落ちないようにしておく
         modalities: Array.from(new Set(rs.map(r => r.modality)))
       });
     });
@@ -70,9 +68,9 @@
   }
 
   /* 記録の方式を今の呼び方に寄せる。
-       v1        responseMode が無い。当時はリアルタイム判定しかなかった
-       v2-v4     'calc' は「自分のペース」方式のひとつになった
-       'recall'  廃止した方式。記録は残っているので読めるようにしておく */
+       v1      responseMode が無い。当時はリアルタイム判定しかなかった
+       v2-v4   'calc' は「自分のペース」方式のひとつになった
+     廃止した 'recall' は storage.js の読み込み時点で落ちるので、ここには来ない。 */
   function mode(r) {
     const m = r.responseMode || 'realtime';
     return m === 'calc' ? 'paced' : m;
@@ -85,17 +83,13 @@
     return m === 'paced' ? 'paced:' + (r.task || r.modality) : m;
   }
 
-  const MODE_LABEL = { realtime: 'リアルタイム', paced: '自分のペース', recall: '提示後に入力（廃止）' };
+  const MODE_LABEL = { realtime: 'リアルタイム', paced: '自分のペース' };
 
   function sectionLabel(key) {
     if (key === 'realtime') return 'リアルタイム判定';
-    if (key === 'recall') return '提示後に入力（廃止）';
     if (key.indexOf('paced:') === 0) return modalityLabel(key.slice(6)) + ' — 自分のペース';
     return key;
   }
-
-  // 廃止した方式は同じ条件で走らせ直せないので、再挑戦を出さない
-  function replayable(r) { return mode(r) !== 'recall'; }
 
   function pct(v) { return (v === null || v === undefined) ? '—' : Math.round(v * 100) + '%'; }
 
@@ -216,16 +210,13 @@
   }
 
   /* 方式1つ分。難易度の推移 → 成績の推移 → 日付ごと の順。
-     難易度のつまみは realtime と calc が N、recall が問題数。
-     成績は realtime だけ ヒット率/誤警報率、あとは正答率。 */
+     難易度のつまみはどの方式も N。
+     成績は realtime だけ ヒット率/誤警報率、自分のペースは正答率。 */
   function modeSection(key, rs) {
-    const retired = key === 'recall';
     return '<section class="mode-block">' +
       '<h2 class="mode-title">' + esc(sectionLabel(key)) +
       '<span class="mode-count">' + rs.length + ' ブロック</span></h2>' +
-      (retired ? '<p class="hint retired-note">この方式は廃止しました（Nバックではなく記憶スパン課題だったため）。' +
-                 '過去の記録として残してあります。</p>' : '') +
-      (retired ? countChart(rs) : nChart(rs)) +
+      nChart(rs) +
       (key === 'realtime' ? realtimeRateChart(rs) : accuracyChart(rs)) +
       dateTable(rs, key) +
       '</section>';
@@ -266,19 +257,6 @@
     }) + legend(sr));
   }
 
-  // 難易度のつまみ：提示後に入力は問題数
-  function countChart(rs) {
-    const sr = seriesByModality(rs, r => r.trials, r => localDate(r.datetime) + '  ' + r.trials + '問');
-    const top = Math.max(maxOf(rs, r => r.trials), 4);
-    const step = top > 12 ? 4 : 2;
-    const ticks = [];
-    for (let v = 2; v <= top; v += step) ticks.push({ v: v, label: v + '問' });
-    return card('問題数の推移', lineChart({
-      title: '問題数の推移', series: sr, xMax: rs.length - 1,
-      yMin: 1, yMax: top + 1, yTicks: ticks, xLabels: xLabelsFor(rs)
-    }) + legend(sr));
-  }
-
   const PCT_TICKS = [{ v: 0, label: '0%' }, { v: 0.5, label: '50%' }, { v: 1, label: '100%' }];
 
   function rateChart(title, rs, series) {
@@ -307,25 +285,16 @@
   }
 
   function dateTable(rs, key) {
-    const retired = key === 'recall';
-    const head = key === 'realtime'
-      ? '<th>日付</th><th>ブロック</th><th>最高N</th><th>ヒット率</th><th>誤警報率</th><th>d&prime;</th>'
-      : (retired
-        ? '<th>日付</th><th>ブロック</th><th>最多問題数</th><th>正答率</th>'
-        : '<th>日付</th><th>ブロック</th><th>最高N</th><th>正答率</th>');
+    const realtime = key === 'realtime';
+    const head = '<th>日付</th><th>ブロック</th><th>最高N</th>' +
+      (realtime ? '<th>ヒット率</th><th>誤警報率</th><th>d&prime;</th>' : '<th>正答率</th>');
     const rows = byDate(rs).map(function (d) {
-      let cells;
-      if (key === 'realtime') {
-        cells = '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' +
-          '<td>' + pct(d.hitRate) + '</td><td>' + pct(d.faRate) + '</td><td>' + num(d.dPrime, 2) + '</td>';
-      } else if (retired) {
-        cells = '<td class="strong">' + (d.maxRecallCount ? d.maxRecallCount + '問' : '—') + '</td>' +
-          '<td>' + pct(d.accuracy) + '</td>';
-      } else {
-        cells = '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' +
-          '<td>' + pct(d.accuracy) + '</td>';
-      }
-      return '<tr><td>' + d.date + '</td><td>' + d.blocks + '</td>' + cells + '</tr>';
+      return '<tr><td>' + d.date + '</td><td>' + d.blocks + '</td>' +
+        '<td class="strong">' + (d.maxN ? 'N' + d.maxN : '—') + '</td>' +
+        (realtime
+          ? '<td>' + pct(d.hitRate) + '</td><td>' + pct(d.faRate) + '</td><td>' + num(d.dPrime, 2) + '</td>'
+          : '<td>' + pct(d.accuracy) + '</td>') +
+        '</tr>';
     }).join('');
     return card('日付ごと', '<div class="table-scroll"><table class="grid-table"><thead><tr>' +
       head + '</tr></thead><tbody>' + rows + '</tbody></table></div>');
@@ -344,8 +313,7 @@
       const score = m === 'realtime'
         ? 'ヒット ' + num0(r.hits) + '/' + num0(r.targets) + ' ・誤警報 ' + num0(r.falseAlarms)
         : '正答 ' + num0(r.correct) + '/' + num0(r.questions);
-      const length = m === 'realtime' ? r.trials + '試行'
-        : (m === 'paced' ? r.trials + '問出題' : r.trials + '問');
+      const length = m === 'realtime' ? r.trials + '試行' : r.trials + '問出題';
       return '<tr>' +
         '<td class="nowrap">' + localDate(r.datetime) + ' ' + localTime(r.datetime) + '</td>' +
         (hasN ? '<td class="strong">' + (r.n > 0 ? 'N' + r.n : '—') + '</td>' : '') +
@@ -358,7 +326,7 @@
         '<td>' + (r.meanRt === null || r.meanRt === undefined ? '—' : r.meanRt + 'ms') + '</td>' +
         '<td class="mono">' + r.seed + '</td>' +
         '<td class="row-actions nowrap">' +
-        (replayable(r) ? '<button class="mini" data-replay="' + esc(r.datetime) + '">再挑戦</button>' : '') +
+        '<button class="mini" data-replay="' + esc(r.datetime) + '">再挑戦</button>' +
         '<button class="mini danger" data-delete="' + esc(r.datetime) + '">削除</button>' +
         '</td></tr>';
     }).join('');

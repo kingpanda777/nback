@@ -7,12 +7,22 @@
   const HISTORY_KEY = 'nback.history.v1';
   const SETTINGS_KEY = 'nback.settings.v1';
 
+  /* 廃止した方式。記録も残さないことにしたので、読み込みの入口で落とす。
+     ここで落としておけば、履歴側は廃止方式を一切知らなくてよい。
+     .jsonl の読み込みからも同じく除く（古い書き出しを読み込んでも戻らない）。 */
+  const RETIRED_MODES = ['recall'];
+  function isRetired(r) { return RETIRED_MODES.indexOf(r && r.responseMode) >= 0; }
+
   function load() {
     try {
       const raw = localStorage.getItem(HISTORY_KEY);
       if (!raw) return [];
       const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? arr : [];
+      if (!Array.isArray(arr)) return [];
+      const kept = arr.filter(r => !isRetired(r));
+      // 廃止方式の記録が混じっていたら、その場で保存し直して消しておく
+      if (kept.length !== arr.length) save(kept);
+      return kept;
     } catch (e) {
       console.error('履歴の読み込みに失敗', e);
       return [];
@@ -54,12 +64,19 @@
 
   // datetime をキーに重複を除いてマージする
   function merge(existing, incoming) {
+    const retired = incoming.filter(isRetired).length;
+    const usable = incoming.filter(r => !isRetired(r));
     const seen = new Set(existing.map(r => r.datetime));
-    const added = incoming.filter(r => r && r.datetime && !seen.has(r.datetime));
+    const added = usable.filter(r => r && r.datetime && !seen.has(r.datetime));
     const all = existing.concat(added);
     all.sort((a, b) => a.datetime < b.datetime ? -1 : 1);
     save(all);
-    return { records: all, added: added.length, skipped: incoming.length - added.length };
+    return {
+      records: all,
+      added: added.length,
+      skipped: usable.length - added.length,
+      retired: retired
+    };
   }
 
   function download(records) {
@@ -125,7 +142,7 @@
   }
 
   NB.store = {
-    load, save, append, remove, clear,
+    load, save, append, remove, clear, isRetired,
     toJsonl, fromJsonl, merge, download,
     loadSettings, saveSettings, DEFAULT_SETTINGS
   };

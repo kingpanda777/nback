@@ -4,13 +4,23 @@ const fs = require('fs');
 const p = require('path');
 global.window = {};
 global.navigator = {};
+
+// storage.js を読むための最小の localStorage
+const mem = {};
+global.localStorage = {
+  getItem: k => (k in mem ? mem[k] : null),
+  setItem: (k, v) => { mem[k] = String(v); },
+  removeItem: k => { delete mem[k]; }
+};
 // 位置課題は提示を modalities.js に委譲しているので一緒に読む。
 // どのファイルも読み込み時点では DOM を触らないので、Node でもそのまま評価できる。
 eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'core.js'), 'utf8'));
 eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'modalities.js'), 'utf8'));
 eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'paced.js'), 'utf8'));
+eval(fs.readFileSync(p.join(__dirname, '..', 'js', 'storage.js'), 'utf8'));
 const core = window.NB.core;
 const paced = window.NB.paced;
+const store = window.NB.store;
 
 let fails = 0;
 function ok(cond, msg) {
@@ -336,6 +346,37 @@ console.log('--- 計算Nバック: 2桁への拡張余地 ---');
     if (pr.op === '\u00f7' && pr.left % pr.right !== 0) bad++;
   });
   ok(bad === 0, '2桁でも式の値と答えが一致し、割り算は割り切れる');
+}
+
+
+console.log('--- 廃止した方式の記録を残さない ---');
+{
+  const rt = { datetime: '2026-08-01T00:00:00.000Z', responseMode: 'realtime', n: 2 };
+  const pc = { datetime: '2026-08-02T00:00:00.000Z', responseMode: 'paced', task: 'paced-number', n: 2 };
+  const v1 = { datetime: '2026-08-03T00:00:00.000Z', n: 2 };                       // responseMode 無し
+  const rc = { datetime: '2026-08-04T00:00:00.000Z', responseMode: 'recall', n: 0 };
+  const cl = { datetime: '2026-08-05T00:00:00.000Z', responseMode: 'calc', n: 2 };  // v4 までの計算
+
+  ok(store.isRetired(rc) === true, '廃止方式と判定される');
+  ok([rt, pc, v1, cl].every(r => store.isRetired(r) === false), '現役の方式は残す（v1・v4の記録も含む）');
+
+  // 読み込みの入口で落ちて、保存し直される
+  localStorage.setItem('nback.history.v1', JSON.stringify([rt, rc, pc, cl, v1]));
+  const loaded = store.load();
+  ok(loaded.length === 4, '読み込み時に廃止方式だけ落ちる（5件 → ' + loaded.length + '件）');
+  ok(loaded.every(r => r.responseMode !== 'recall'), '残った記録に廃止方式は無い');
+  const onDisk = JSON.parse(localStorage.getItem('nback.history.v1'));
+  ok(onDisk.length === 4, '保存し直されて localStorage からも消える');
+
+  // .jsonl の読み込みからも入らない
+  localStorage.setItem('nback.history.v1', JSON.stringify([rt]));
+  const res = store.merge(store.load(), [pc, rc, cl]);
+  ok(res.added === 2 && res.retired === 1, '読み込み: 現役2件を追加、廃止1件は取り込まない');
+  ok(res.records.every(r => r.responseMode !== 'recall'), '古い .jsonl を読み込んでも戻らない');
+
+  // 何も無いときに壊れない
+  localStorage.removeItem('nback.history.v1');
+  ok(store.load().length === 0, '履歴が空でも落ちない');
 }
 
 

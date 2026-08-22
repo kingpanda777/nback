@@ -370,7 +370,6 @@ button.danger { color: var(--bad); border-color: #4a2f34; }
 
 .paced-next { width: min(86vw, 320px); min-height: 64px; font-size: 1.05rem; }
 
-.retired-note { margin: 0 0 12px; }
 
 /* ---- 結果：問題ごとの内訳 ---- */
 .recall-review {

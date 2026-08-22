@@ -46,8 +46,7 @@ python -m http.server 8123
 3. **保存先** — ブラウザ内 localStorage。中身は仕様書どおり1行1ブロックの形なので、
    `.jsonl` として書き出し／読み込みできる（端末を移すときはこれを使う）
 
-廃止した方式の記録は**消していない**。履歴から消したいときは、
-書き出してからブロック一覧の削除ボタンで消す（`.jsonl` には残る）。
+廃止した「提示後に入力」の記録は**消す**。更新版を初めて開いた端末で自動的に落ちる。
 
 ## 応答方式
 
@@ -96,7 +95,11 @@ python -m http.server 8123
 「すべて覚えて最後に全部答える」方式は削除した。**Nバックではなく記憶スパン課題だったため**
 （詳しい経緯は [nback-spec.md](nback-spec.md)）。
 
-過去の記録は消していない。`responseMode: "recall"` の記録は履歴に読み取り専用の区画として出る。
+**過去の記録も残さない。** `storage.js` の `load()` が `responseMode: "recall"` の記録を落として
+保存し直す（更新版を初めて開いた時点で、その端末から消える）。`merge()` も同じく除くので、
+古い `.jsonl` を読み込んでも戻らない。落とすのを入口1か所に寄せてあるので、
+`history.js` は廃止した方式を一切知らない。
+
 設定に残っていた `recall` / `calc` は `storage.js` の `migrateSettings()` が今の形に寄せる。
 
 ## モダリティ
@@ -202,8 +205,8 @@ Pointer Events が無い環境向けに `click` も拾い、直前に `pointerdo
 - `realtime`: `n` は1以上。`hits` / `misses` / `falseAlarms` / `correctRejections` / `hitRate` / `faRate` / `dPrime`
 - `paced`: `n` は1以上。`task` / `questions` / `correct` / `incorrect` / `accuracy` / `streak`。
   計算課題なら `channels[0].problems` に式が入る
-- `recall`（廃止）/ `calc`（v4まで）: 読み取り専用。`history.js` の `mode()` が
-  `calc` を `paced` に寄せ、`recall` はそのまま「廃止」区画として扱う
+- `calc`（v4まで）: `history.js` の `mode()` が `paced` に寄せる
+- `recall`（廃止）: 読み込み時に捨てるので、履歴には届かない
 
 `version: 1` の記録には `responseMode` がないが、当時はリアルタイム判定しかなかったので
 履歴側でそう解釈している。
@@ -227,6 +230,7 @@ node test/core.test.js
 刺激列の再現性、ターゲット率、lure の混入、ヒット/ミス/誤警報/正棄却、d′、
 Nバック構造を作らない列 (n = 0)、回答の集計、混合モダリティの記号列、難易度の目安、
 自分のペース4課題の列（数字は0〜9・位置は中央を除く8マス・混合は18種・計算は式が付く）、課題IDの非衝突、
+廃止した方式の記録を読み込みでも取り込みでも残さないこと、
 計算の式の作り方（四則すべて・割り切れる・答えが一桁）と再現性と2桁への拡張余地を確認する。
 
 ## 操作

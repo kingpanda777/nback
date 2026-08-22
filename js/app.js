@@ -489,7 +489,8 @@
         const res = NB.store.merge(records, incoming);
         records = res.records;
         renderHistory();
-        alert(res.added + ' 件を追加しました（重複 ' + res.skipped + ' 件は無視）。');
+        alert(res.added + ' 件を追加しました（重複 ' + res.skipped + ' 件は無視' +
+          (res.retired ? '、廃止した方式 ' + res.retired + ' 件は取り込まず' : '') + '）。');
       };
       reader.readAsText(file);
       this.value = '';
